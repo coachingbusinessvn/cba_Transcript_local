@@ -28,7 +28,7 @@
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
-| 14 | Nghiệm thu 6 tiêu chí + tag `v0.1.0` | ⚪ | Ghi PASS/FAIL vào bảng dưới |
+| 14 | Nghiệm thu 6 tiêu chí + tag `v0.1.0` | 🔵 | Nghiệm thu một phần — chưa gắn tag `v0.1.0` (thiếu máy sạch / file dài / WER) |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
 
@@ -41,12 +41,12 @@
 
 | Tiêu chí | Kết quả | Ghi chú |
 |---|---|---|
-| 1. Cài trên máy sạch không lỗi | — | |
-| 2. `run` tự mở browser + UI tiếng Việt | — | |
-| 3. File dài → DOCX/XLSX đủ timestamp, người nói, câu | — | |
-| 4. Glossary sửa đúng từ khai báo | — | |
-| 5. Chạy offline sau lần tải model đầu | — | |
-| 6. WER trên audio mẫu thật ≤ 30% | — | Đo bằng Task 12b |
+| 1. Cài trên máy sạch không lỗi | PARTIAL | Script `install.command`/`install.bat` có sẵn; `uv sync` pass trên máy dev — chưa thử máy sạch / Windows |
+| 2. `run` tự mở browser + UI tiếng Việt | PASS (dev) | `TestClient` GET `/` + `/api/meta` OK; `main()` mở browser sau 1.5s |
+| 3. File dài → DOCX/XLSX đủ timestamp, người nói, câu | PARTIAL | Smoke E2E (audio ngắn `say` + tiny) tạo DOCX/XLSX; chưa thử file ~30 phút |
+| 4. Glossary sửa đúng từ khai báo | PASS | Unit tests exact + fuzzy (`NVIDIA`, `Vinamilk`) |
+| 5. Chạy offline sau lần tải model đầu | — | Chưa tắt mạng thử có hệ thống |
+| 6. WER trên audio mẫu thật ≤ 30% | BLOCKED | Chờ người dùng cung cấp `eval/sample.*` + `sample.txt` |
 
 ## Việc treo / rủi ro đang mở
 
