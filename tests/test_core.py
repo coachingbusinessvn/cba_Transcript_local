@@ -1,7 +1,7 @@
 import tempfile
 from pathlib import Path
 
-from app.diarize import SpeakerTurn
+from app.diarize import SpeakerTurn, merge_minor_speakers
 from app.export import to_docx, to_srt, to_txt, to_xlsx
 from app.glossary import correct, parse
 from app.segment import Sentence, assign_speakers, build_sentences
@@ -76,3 +76,26 @@ def test_settings_roundtrip(monkeypatch, tmp_path):
     assert s["model"] == "phowhisper-medium"
     assert "bogus" not in s
     assert config.load_settings()["model"] == "phowhisper-medium"
+
+
+def test_merge_minor_speakers_collapses_noise_ids():
+    """Hai speaker chính + nhiều id 'nhiễu' ngắn → còn 2 người sau merge."""
+    turns = [
+        SpeakerTurn(0.0, 10.0, 0),  # major A
+        SpeakerTurn(10.0, 10.3, 5),  # noise
+        SpeakerTurn(10.3, 20.0, 1),  # major B
+        SpeakerTurn(20.0, 20.2, 99),  # noise
+        SpeakerTurn(20.2, 30.0, 0),  # major A
+        SpeakerTurn(30.0, 40.0, 1),  # major B
+    ]
+    merged = merge_minor_speakers(turns, min_share=0.05, max_speakers=8)
+    ids = {t.speaker for t in merged}
+    assert ids == {0, 1}
+    # Thời lượng gần như giữ nguyên (chỉ gộp nhãn)
+    assert abs(sum(t.end - t.start for t in merged) - 40.0) < 1e-6
+
+
+def test_merge_minor_speakers_respects_max_speakers():
+    turns = [SpeakerTurn(float(i), float(i) + 1.0, i) for i in range(20)]
+    merged = merge_minor_speakers(turns, min_share=0.0, max_speakers=3)
+    assert len({t.speaker for t in merged}) <= 3

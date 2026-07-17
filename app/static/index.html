@@ -282,8 +282,8 @@
         </div>
         <div class="field">
           <label for="numSpeakers">Số người nói</label>
-          <input type="number" id="numSpeakers" min="0" max="20" step="1" value="0" />
-          <div class="hint">0 = tự đoán</div>
+          <input type="number" id="numSpeakers" min="0" max="20" step="1" value="2" />
+          <div class="hint">Nên nhập đúng số người (vd. <strong>2</strong>). <code>0</code> = tự đoán (dễ tách quá nhiều trên file dài).</div>
         </div>
       </div>
       <div class="field">
@@ -561,6 +561,8 @@
         }
       }
 
+      let pollFailCount = 0;
+
       async function pollJob() {
         if (!currentJobId) return;
         try {
@@ -569,6 +571,7 @@
             const t = await r.text();
             throw new Error(t || ("HTTP " + r.status));
           }
+          pollFailCount = 0;
           const job = await r.json();
           setProgress(job.percent, job.message || "");
           if (job.status === "running") return;
@@ -583,9 +586,20 @@
             showResults(job);
           }
         } catch (e) {
+          pollFailCount += 1;
+          const msg = String(e.message || e);
+          // Mạng chập chờn / server bận CPU: thử lại vài lần trước khi báo lỗi
+          if (pollFailCount < 5 && (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("fetch"))) {
+            setProgress(null, "Mất kết nối tạm thời, đang thử lại… (" + pollFailCount + "/5)");
+            return;
+          }
           stopPoll();
           setRunning(false);
-          showError("Lỗi khi kiểm tra tiến trình: " + (e.message || e));
+          showError(
+            "Mất kết nối tới server (có thể process đã dừng giữa chừng khi xử lý file dài). " +
+            "Hãy mở lại app (run.command) rồi bấm Bắt đầu lại — model đã tải sẵn nên nhanh hơn. Chi tiết: " +
+            msg
+          );
         }
       }
 
@@ -594,6 +608,7 @@
         results.classList.remove("show");
         sentences = [];
         names = {};
+        pollFailCount = 0;
         if (!selectedFile) {
           showError("Vui lòng chọn file audio hoặc video trước.");
           return;

@@ -21,6 +21,15 @@ _EMB_URL = (
     "speaker-recongition-models/3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
 )
 
+# Auto-cluster: threshold CÀNG LỚN → CÀNG ÍT người nói (sherpa-onnx FastClustering).
+# 0.7 dễ tách hàng chục/trăm "speaker" trên hội thoại dài + embedding ồn (model SV tiếng Trung).
+_AUTO_CLUSTER_THRESHOLD = 0.92
+# Khi user cố định số người, threshold bị bỏ qua nếu num_clusters > 0.
+_FIXED_CLUSTER_THRESHOLD = 0.5
+# Hậu xử lý auto: gộp speaker chiếm < 3% tổng thời gian nói, và trần 8 người.
+_MIN_SPEAKER_SHARE = 0.03
+_MAX_AUTO_SPEAKERS = 8
+
 
 @dataclass
 class SpeakerTurn:
@@ -55,6 +64,82 @@ def ensure_models() -> tuple[Path, Path]:
     return seg_model, emb_model
 
 
+def _speaker_durations(turns: list[SpeakerTurn]) -> dict[int, float]:
+    dur: dict[int, float] = {}
+    for t in turns:
+        dur[t.speaker] = dur.get(t.speaker, 0.0) + max(0.0, t.end - t.start)
+    return dur
+
+
+def _renumber(turns: list[SpeakerTurn]) -> list[SpeakerTurn]:
+    """Đánh lại id speaker liên tục 0..K-1 theo thứ tự xuất hiện."""
+    mapping: dict[int, int] = {}
+    out: list[SpeakerTurn] = []
+    for t in turns:
+        if t.speaker not in mapping:
+            mapping[t.speaker] = len(mapping)
+        out.append(SpeakerTurn(t.start, t.end, mapping[t.speaker]))
+    return out
+
+
+def merge_minor_speakers(
+    turns: list[SpeakerTurn],
+    *,
+    min_share: float = _MIN_SPEAKER_SHARE,
+    max_speakers: int = _MAX_AUTO_SPEAKERS,
+) -> list[SpeakerTurn]:
+    """Gộp speaker 'lạ' (nói rất ít) vào người nói kề trước/sau theo thời gian.
+
+    Dùng sau clustering tự động — tránh 50–150 nhãn khi thực tế chỉ 2–3 người.
+    """
+    if not turns:
+        return turns
+
+    dur = _speaker_durations(turns)
+    total = sum(dur.values()) or 1.0
+    # Giữ speaker đủ dài; nếu vẫn quá nhiều thì chỉ giữ top max_speakers theo thời lượng
+    keep = {s for s, d in dur.items() if d / total >= min_share}
+    if len(keep) > max_speakers:
+        ranked = sorted(dur.items(), key=lambda x: -x[1])
+        keep = {s for s, _ in ranked[:max_speakers]}
+    if not keep:
+        # fallback: giữ 1–2 người nói nhiều nhất
+        ranked = sorted(dur.items(), key=lambda x: -x[1])
+        keep = {s for s, _ in ranked[: min(2, len(ranked))]}
+
+    if keep == set(dur.keys()):
+        return _renumber(turns)
+
+    # Gán lại: ưu tiên speaker của turn liền trước còn hợp lệ, không thì turn sau
+    n = len(turns)
+    new_spk = [t.speaker for t in turns]
+
+    # pass 1: forward fill from previous kept
+    last_kept: int | None = None
+    for i in range(n):
+        if new_spk[i] in keep:
+            last_kept = new_spk[i]
+        elif last_kept is not None:
+            new_spk[i] = last_kept
+
+    # pass 2: backward fill for prefix that had no previous kept
+    next_kept: int | None = None
+    for i in range(n - 1, -1, -1):
+        if new_spk[i] in keep:
+            next_kept = new_spk[i]
+        elif new_spk[i] not in keep and next_kept is not None:
+            new_spk[i] = next_kept
+
+    # pass 3: bất kỳ id còn lại ngoài keep → map về speaker dài nhất
+    major = max(keep, key=lambda s: dur.get(s, 0.0))
+    for i in range(n):
+        if new_spk[i] not in keep:
+            new_spk[i] = major
+
+    merged = [SpeakerTurn(t.start, t.end, new_spk[i]) for i, t in enumerate(turns)]
+    return _renumber(merged)
+
+
 def diarize(
     wav16k_path: Path,
     num_speakers: int = 0,
@@ -66,6 +151,7 @@ def diarize(
     from .media import read_wav16k_float32
 
     seg_model, emb_model = ensure_models()
+    auto = num_speakers <= 0
     cfg = sherpa_onnx.OfflineSpeakerDiarizationConfig(
         segmentation=sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
             pyannote=sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(
@@ -74,19 +160,33 @@ def diarize(
         ),
         embedding=sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=str(emb_model)),
         clustering=sherpa_onnx.FastClusteringConfig(
-            num_clusters=num_speakers if num_speakers > 0 else -1,
-            threshold=0.7,
+            # num_clusters > 0: ép đúng số người (khuyến nghị cho họp 2–3 người)
+            num_clusters=num_speakers if not auto else -1,
+            # auto: threshold lớn hơn → ít cluster hơn (doc sherpa-onnx)
+            threshold=_AUTO_CLUSTER_THRESHOLD if auto else _FIXED_CLUSTER_THRESHOLD,
         ),
-        min_duration_on=0.2,
-        min_duration_off=0.5,
+        min_duration_on=0.3,
+        min_duration_off=0.6,
     )
     sd = sherpa_onnx.OfflineSpeakerDiarization(cfg)
     samples = read_wav16k_float32(wav16k_path)
 
+    # Callback diarize gọi rất dày — throttle để UI/server không bị spam
+    _last_frac = [-1.0]
+
     def _cb(processed: int, total: int) -> int:
         if progress_cb and total > 0:
-            progress_cb(processed / total)
+            frac = processed / total
+            if frac - _last_frac[0] >= 0.02 or frac >= 1.0:
+                _last_frac[0] = frac
+                progress_cb(frac)
         return 0
 
     result = sd.process(samples, callback=_cb).sort_by_start_time()
-    return [SpeakerTurn(r.start, r.end, r.speaker) for r in result]
+    turns = [SpeakerTurn(r.start, r.end, r.speaker) for r in result]
+
+    if auto:
+        turns = merge_minor_speakers(turns)
+    else:
+        turns = _renumber(turns)
+    return turns
