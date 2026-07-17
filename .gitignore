@@ -1,0 +1,10 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Dữ liệu đánh giá cá nhân (audio thật + transcript tay) — không đưa lên repo
+eval/sample.*
