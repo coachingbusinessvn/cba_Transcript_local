@@ -8,3 +8,6 @@ __pycache__/
 
 # Dữ liệu đánh giá cá nhân (audio thật + transcript tay) — không đưa lên repo
 eval/sample.*
+
+# Git worktrees
+.worktrees/

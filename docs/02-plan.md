@@ -6,7 +6,7 @@
 
 **Architecture:** Core pipeline thuần Python (convert → transcribe → diarize → correct → segment) tách khỏi lớp giao tiếp; FastAPI phục vụ 1 trang HTML tĩnh và chạy job trong thread nền, client poll tiến trình. Không PyTorch — chỉ CTranslate2 (faster-whisper) và ONNX Runtime (sherpa-onnx) để bộ cài nhẹ và ít lỗi.
 
-**Tech Stack:** Python 3.12 (qua `uv`), faster-whisper, sherpa-onnx, FastAPI + uvicorn, python-docx, openpyxl, rapidfuzz, static-ffmpeg. Dev: pytest, ruff, jiwer.
+**Tech Stack:** Python 3.12 (qua `uv`), faster-whisper, sherpa-onnx, FastAPI + uvicorn, python-docx, openpyxl, rapidfuzz, static-ffmpeg, numpy. Dev: pytest, ruff, jiwer.
 
 ## Global Constraints
 
@@ -15,6 +15,7 @@
 - Máy mục tiêu: macOS arm64, macOS x86_64, Windows x64 CPU-only — mọi lựa chọn phải chạy được CPU int8
 - Toàn bộ text hiển thị cho người dùng bằng tiếng Việt; riêng file `.bat` viết không dấu (tránh lỗi codepage)
 - Server chỉ bind `127.0.0.1`; dữ liệu người dùng lưu ở thư mục data theo chuẩn OS, không ghi vào thư mục cài đặt
+- **v1 chỉ 1 job transcript chạy tại một thời điểm** (server 409 nếu bận); cache tối đa 1 WhisperModel trong process
 - **Quy trình mỗi task:** làm xong → `uv run ruff check .` sạch lỗi → chạy bước verify của task → `git add` các file của task + `git commit -m "<type>: <mô tả>"` (type: feat/test/docs/chore). Commit message kết thúc bằng dòng `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
 - **Commit `uv.lock`** ngay sau lần `uv sync` đầu tiên — máy người dùng phải cài đúng phiên bản đã test
 - Model registry đã verify tồn tại ngày 2026-07-17: `diepho/PhoWhisper-small-ct2`, `diepho/PhoWhisper-medium-ct2`, `kiendt/PhoWhisper-large-ct2`, `deepdml/faster-whisper-large-v3-turbo-ct2`
@@ -49,6 +50,7 @@ dependencies = [
     "rapidfuzz>=3.6",
     "static-ffmpeg>=2.7",
     "huggingface-hub>=0.23",
+    "numpy>=1.26",  # dùng trực tiếp trong media.read_wav16k_float32 — khai báo tường minh, không phụ thuộc transitive
 ]
 
 [dependency-groups]
@@ -302,7 +304,7 @@ def read_wav16k_float32(wav_path: Path):
 - Consumes: `config.MODEL_REGISTRY`, `config.models_dir()`
 - Produces:
   - `Word(start: float, end: float, text: str)` (dataclass)
-  - `load_model(model_key) -> WhisperModel` (CPU, int8, `download_root=models_dir()`)
+  - `load_model(model_key) -> WhisperModel` (CPU, int8, `download_root=models_dir()`; **cache 1 model/process**, đổi key thì thay cache)
   - `transcribe(model, wav_path, duration, language="vi", beam_size=5, initial_prompt=None, hotwords=None, progress_cb=None) -> list[Word]`
 
 - [ ] **Step 1: Viết `app/transcribe.py`**
@@ -315,6 +317,10 @@ from typing import Callable, Optional
 
 from . import config
 
+# Cache model theo process: tránh load lại ~0.5–3GB mỗi job (RAM + thời gian).
+# v1 chỉ giữ 1 model gần nhất — đổi model_key sẽ giải phóng tham chiếu cũ.
+_MODEL_CACHE: dict[str, object] = {}
+
 
 @dataclass
 class Word:
@@ -324,15 +330,22 @@ class Word:
 
 
 def load_model(model_key: str):
+    """Nạp WhisperModel (CPU int8). Lần hai cùng model_key trả về instance đã cache."""
+    if model_key in _MODEL_CACHE:
+        return _MODEL_CACHE[model_key]
+
     from faster_whisper import WhisperModel
 
     source = config.MODEL_REGISTRY[model_key]["source"]
-    return WhisperModel(
+    model = WhisperModel(
         source,
         device="cpu",
         compute_type="int8",
         download_root=str(config.models_dir()),
     )
+    _MODEL_CACHE.clear()  # chỉ giữ 1 model trong RAM (máy CPU yếu)
+    _MODEL_CACHE[model_key] = model
+    return model
 
 
 def transcribe(
@@ -723,10 +736,15 @@ def to_docx(sentences: list[Sentence], out_path: Path, title: str,
     has_speaker = any(s.speaker is not None for s in sentences)
     headers = ["#", "Thời gian"] + (["Người nói"] if has_speaker else []) + ["Nội dung"]
     table = doc.add_table(rows=1, cols=len(headers))
-    table.style = "Light Grid Accent 1"
+    # Style có thể thiếu trên một số bản python-docx / locale — không được làm hỏng export.
+    try:
+        table.style = "Light Grid Accent 1"
+    except (KeyError, ValueError):
+        pass
     for cell, h in zip(table.rows[0].cells, headers):
         cell.text = h
-        cell.paragraphs[0].runs[0].bold = True
+        if cell.paragraphs[0].runs:
+            cell.paragraphs[0].runs[0].bold = True
 
     for i, s in enumerate(sentences, 1):
         row = table.add_row().cells
@@ -805,7 +823,7 @@ def to_txt(sentences: list[Sentence], out_path: Path,
 - Create: `app/pipeline.py`
 
 **Interfaces:**
-- Consumes: tất cả module Task 1–7
+- Consumes: tất cả module Task 1–7 (`transcribe.load_model` đã cache 1 model/process — pipeline không tự load trùng trong cùng process)
 - Produces:
   - `run(input_path, work_dir, model_key, language="vi", enable_diarization=True, num_speakers=0, glossary_text="", progress=None) -> dict`
   - dict kết quả: `{sentences: [asdict(Sentence)], duration: float, num_speakers: int, extracted_audio: str|None, model: str}`
@@ -1009,9 +1027,11 @@ def test_settings_roundtrip(monkeypatch, tmp_path):
   - `GET /` → index.html
   - `GET /api/meta` → `{models: [{key,label,size,downloaded}], settings, glossary}`
   - `POST /api/jobs` (multipart: `file`, `model`, `language`, `diarize`, `num_speakers`, `glossary`) → `{job_id}`; đồng thời lưu model+glossary làm mặc định
+  - **v1 chỉ 1 job chạy tại một thời điểm** — nếu đã có job `status=running` thì `POST /api/jobs` trả **HTTP 409** (tránh load 2 model song song trên máy CPU yếu)
   - `GET /api/jobs/{id}` → `{status: running|done|error, stage, percent, message, filename, result?}`
-  - `POST /api/jobs/{id}/export` (JSON `{format: docx|xlsx|srt|txt, names: {"0": "Tên"}}`) → file download
+  - `POST /api/jobs/{id}/export` (JSON `{format: docx|xlsx|srt|txt, names: {"0": "Tên"}}`) → file download; `Content-Disposition` dùng stem file gốc (`{stem}.{fmt}`), không hard-code `transcript.*`
   - `GET /api/jobs/{id}/audio` → file audio đã tách (chỉ khi input là video)
+  - Form `diarize`: gửi chuỗi `"true"`/`"false"` từ JS; FastAPI parse bool form đúng — verify uncheck → `enable_diarization=False` ở Task 12
 - `python -m app.server` → chọn port trống từ 8756, mở browser sau 1.5s, uvicorn host 127.0.0.1
 
 - [ ] **Step 1: Viết `app/server.py`**
@@ -1036,6 +1056,10 @@ JOBS: dict[str, dict] = {}
 _STATIC = Path(__file__).parent / "static"
 _EXPORTERS = {"docx": export.to_docx, "xlsx": export.to_xlsx,
               "srt": export.to_srt, "txt": export.to_txt}
+
+
+def _any_job_running() -> bool:
+    return any(j.get("status") == "running" for j in JOBS.values())
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1083,6 +1107,12 @@ async def create_job(
     num_speakers: int = Form(0),
     glossary: str = Form(""),
 ):
+    # v1: tuần tự 1 job — máy CPU-only không chịu được 2 WhisperModel cùng lúc
+    if _any_job_running():
+        raise HTTPException(
+            409,
+            "Đang có job khác chạy. Vui lòng đợi xong rồi thử lại.",
+        )
     if model not in config.MODEL_REGISTRY:
         raise HTTPException(400, "Model không hợp lệ")
     name = Path(file.filename or "input")
@@ -1218,18 +1248,43 @@ async function poll() {
   else showError(j.message);
 }
 async function download(fmt) {
+  // Tên file: ưu tiên Content-Disposition từ server (stem gốc); fallback transcript.<fmt>
   const r = await fetch(`/api/jobs/${jobId}/export`, {
     method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify({format: fmt, names})});
   const blob = await r.blob();
+  const cd = r.headers.get("content-disposition") || "";
+  const m = /filename="?([^";]+)"?/i.exec(cd);
+  const filename = m ? m[1] : `transcript.${fmt}`;
   const a = Object.assign(document.createElement("a"),
-    {href: URL.createObjectURL(blob), download: `transcript.${fmt}`});
+    {href: URL.createObjectURL(blob), download: filename});
   a.click(); URL.revokeObjectURL(a.href);
 }
 </script>
 ```
 
-- [ ] **Step 2: Verify thủ công trong browser** — mở app, soát đủ 6 mục spec (job thật chạy ở Task 12).
+- [ ] **Step 2: Verify thủ công — checklist QA (PASS/FAIL từng dòng)**
+
+| # | Hành vi | Cách kiểm | Expected |
+|---|---|---|---|
+| 1a | Chọn file bằng input | Click chọn `.mp3` | Hiện tên file đã chọn |
+| 1b | Drag-drop | Kéo file vào vùng drop | Tên file cập nhật; file không hỗ trợ → báo lỗi rõ |
+| 1c | `accept` | Xem attribute input | Khớp đuôi audio+video của `media.py` |
+| 2a | Model list | Mở select | Đủ 5 model; label + size; model đã tải có "✓ đã tải"; preselect `settings.model` |
+| 2b | Ngôn ngữ | Đổi select | Có `vi` và `auto` |
+| 2c | Diarization | Bỏ tick checkbox rồi start (smoke) | Job chạy với diarize=false (không stage diarize, hoặc `num_speakers=0` trong result) |
+| 2d | Glossary | Xem textarea | Prefill từ meta; placeholder có `sai => đúng` |
+| 3 | Start + disable | Bấm "Bắt đầu" khi đang chạy | Nút disable; không gửi job thứ 2 (server 409 nếu cố) |
+| 4a | Progress | Trong lúc job running | Bar % + message tiếng Việt; poll ~1.2s |
+| 4b | Error | (tùy chọn) file hỏng | `status=error` → chữ đỏ + message |
+| 5a | Đổi tên speaker | Gõ tên vào ô speaker | Preview bảng cập nhật ngay |
+| 5b | Preview cap | (file dài) | Tối đa 300 câu trong bảng |
+| 5c | Export 4 định dạng | Lần lượt DOCX/XLSX/SRT/TXT | Tải được file; tên theo stem gốc (hoặc fallback `transcript.*`) |
+| 5d | Audio tách | Job từ video | Nút "Tải audio đã tách" hiện; job audio thuần → ẩn |
+| 6 | Offline UI | DevTools → Network: no CDN | Chỉ request localhost; font system-ui; layout ≤860px |
+
+Job thật end-to-end gộp Task 12; Task 10 tối thiểu: load UI + meta + checklist 1–2, 6 không cần model.
+
 - [ ] **Step 3: Commit** — `git commit -m "feat: giao dien web tieng viet"`
 
 ### Task 11: Script cài đặt & chạy 1-click
@@ -1302,7 +1357,12 @@ uv run python -m app.server
 **Files:**
 - Create: `scripts/smoke_e2e.py`
 
-**Interfaces:** Consumes `pipeline.run`, `export.*`. Đây là lần đầu toàn pipeline chạy thật → dự kiến phải sửa lỗi nhỏ ở Task 2–7b (API sherpa-onnx/faster-whisper lệch phiên bản).
+**Interfaces:** Consumes `pipeline.run`, `export.*`. Đây là lần đầu toàn pipeline chạy thật → dự kiến phải sửa lỗi nhỏ ở Task 2–7b (API sherpa-onnx/faster-whisper lệch phiên bản; API `static_ffmpeg` nếu khác bản).
+
+**Phạm vi nền tảng:**
+- Script dưới đây **macOS-only** (dùng lệnh `say` tạo 2 giọng). Đây là smoke mặc định trên máy dev Mac.
+- **Windows:** không chạy `smoke_e2e.py` như viết; nghiệm thu bằng UI + file audio thật (Task 14) và unit tests. (Tuỳ chọn sau v0.1: sinh WAV tone bằng numpy/ffmpeg thuần, không `say`.)
+- Cũng verify: (1) uncheck diarization → không chạy stage diarize; (2) start job thứ 2 khi job 1 running → HTTP 409.
 
 - [ ] **Step 1: Viết `scripts/smoke_e2e.py`**
 
@@ -1413,11 +1473,17 @@ print("Mốc tham khảo: <15% tốt · 15–30% chấp nhận được · >30% 
 - [ ] **Step 1: Viết README.md tiếng Việt** gồm đúng các mục:
   1. Giới thiệu 3 dòng + cam kết riêng tư (mọi thứ chạy trên máy, không gửi dữ liệu đi đâu)
   2. Cài đặt Mac (double-click `install.command`; nếu macOS chặn: chuột phải → Open) / Windows (double-click `install.bat`)
-  3. Cách dùng: chạy `run`, chọn file, tùy chọn, bấm nút, đổi tên người nói, tải kết quả
+  3. Cách dùng: chạy `run`, chọn file, tùy chọn, bấm nút, đổi tên người nói, tải kết quả; **lưu ý v1 chỉ chạy 1 job tại một thời điểm**
   4. Glossary: cú pháp `sai => đúng`, từ khóa đơn; ví dụ cụ thể
   5. Chọn model nào: bảng 5 model (tốc độ/độ chính xác/dung lượng, khuyến nghị theo máy; điền số WER đo được ở Task 12b)
-  6. Giới hạn cần biết: diarization phụ thuộc chất lượng ghi âm; lần đầu cần mạng tải model, sau đó offline
-  7. Troubleshooting: port bận, macOS Gatekeeper, ffmpeg, xóa thư mục data để reset
+  6. Giới hạn cần biết: diarization phụ thuộc chất lượng ghi âm; lần đầu cần mạng tải model, sau đó offline; model lớn tốn RAM
+  7. Troubleshooting (ghi **đường dẫn data chính xác**):
+     - **macOS:** `~/Library/Application Support/ViTranscript` (model, settings, glossary, jobs)
+     - **Windows:** `%APPDATA%\ViTranscript` (thường `C:\Users\<tên>\AppData\Roaming\ViTranscript`)
+     - **Linux (nếu chạy):** `~/.local/share/ViTranscript` hoặc `$XDG_DATA_HOME/ViTranscript`
+     - Xóa cả thư mục trên = reset app (tải lại model lần sau)
+     - Port bận, macOS Gatekeeper, ffmpeg thiếu (app tự fallback static-ffmpeg)
+     - Windows: nếu `uv` không tìm thấy sau install, mở lại CMD hoặc thêm `%USERPROFILE%\.local\bin` vào PATH
 - [ ] **Step 2: Verify** — đọc lại theo vai người không biết kỹ thuật; mọi bước đều là double-click hoặc copy-paste 1 lệnh.
 - [ ] **Step 3: Commit** — `git commit -m "docs: README nguoi dung cuoi"`
 
@@ -1432,6 +1498,14 @@ print("Mốc tham khảo: <15% tốt · 15–30% chấp nhận được · >30% 
 ## Self-review (đã chạy khi lập plan)
 
 - **Coverage:** 5 yêu cầu gốc → convert (Task 2), transcript + đổi model (Task 3, 9, 10), export docx/xlsx (Task 7, 9, 10), glossary (Task 5, 9, 10), tách câu + diarization (Task 4, 6). Chất lượng đo được: Task 12b. Đủ.
-- **Placeholder:** Task 10 Step 1 có khung JS + spec 6 mục thay vì HTML đầy đủ — chấp nhận được vì spec hành vi đủ chi tiết để nghiệm thu; phần còn lại là markup/CSS không có quyết định kiến trúc.
-- **Type consistency:** `names` dùng key kiểu chuỗi (`"0"`) xuyên suốt export/server/UI; `Sentence(**dict)` khớp `asdict` của pipeline; `Word`/`SpeakerTurn`/`Sentence` cùng đơn vị giây (float). Đã soát.
+- **Placeholder:** Task 10 Step 1 có khung JS + spec 6 mục thay vì HTML đầy đủ — bù bằng **checklist QA PASS/FAIL** (Step 2) đủ nghiệm thu hành vi; markup/CSS không có quyết định kiến trúc.
+- **Type consistency:** `names` dùng key kiểu chuỗi (`"0"`) xuyên suốt export/server/UI; `Sentence(**dict)` khớp `asdict` của pipeline; `Word`/`SpeakerTurn`/`Sentence` cùng đơn vị giây (float). Download filename: server stem gốc; UI đọc `Content-Disposition`. Đã soát.
 - **Lưu ý phiên bản:** API `sherpa_onnx.OfflineSpeakerDiarization` và tham số `hotwords` của faster-whisper viết theo hiểu biết đến 01/2026 — Task 12 là chốt chặn bắt lệch API (đã ghi phương án fallback trong Task 3).
+- **Plan review 2026-07-17 (P0/P1 đã vá vào plan):**
+  1. `numpy` khai báo tường minh (Task 0)
+  2. Cache 1 WhisperModel / process (Task 3 `load_model`)
+  3. Server từ chối job song song HTTP 409 (Task 9) — khớp brief “v1 tuần tự”
+  4. DOCX table style try/except (Task 7)
+  5. Task 10 checklist QA chi tiết; Task 12 ghi macOS-only smoke
+  6. Task 13 đường dẫn data đầy đủ 3 OS
+  - **Còn mở (không chặn code):** Windows verify installer trên máy thật; golden file WER do người dùng cung cấp; GC job disk (xóa data thủ công qua README).

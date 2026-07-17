@@ -5,27 +5,29 @@
 > **Trạng thái repo:** chỉ có tài liệu — CHƯA có dòng code nào được thực thi. Code nháp viết trước khi chốt plan đã được gỡ bỏ và chuyển toàn bộ vào 02-plan.md (2026-07-17).
 >
 > **Quy trình mỗi task:** code → `uv run ruff check .` sạch → chạy verify của task → commit. Xem Global Constraints trong plan.
+>
+> **Plan review (2026-07-17):** đã vá P0/P1 vào `02-plan.md` (numpy, model cache, single-job 409, DOCX style an toàn, checklist QA UI, smoke macOS-only, đường dẫn data README).
 
 **Trạng thái:** 🟢 xong (đã verify + commit) · 🔵 đang làm · ⚪ chưa làm
 
 | # | Task | Trạng thái | Ghi chú |
 |---|------|-----------|---------|
-| 0 | Khung dự án (`pyproject.toml` + ruff, `.python-version`, package `app`) | ⚪ | Commit `uv.lock` ngay sau `uv sync` đầu tiên |
+| 0 | Khung dự án (`pyproject.toml` + ruff, `.python-version`, package `app`) | ⚪ | Commit `uv.lock` ngay sau `uv sync` đầu tiên; **có `numpy>=1.26`** |
 | 1 | Config & model registry (`app/config.py`) | ⚪ | Model repos đã verify tồn tại trên HF (2026-07-17) |
 | 2 | Media/ffmpeg (`app/media.py`) | ⚪ | |
-| 3 | Transcribe faster-whisper (`app/transcribe.py`) | ⚪ | `hotwords` cần faster-whisper ≥1.0.2; fallback ghi trong plan |
+| 3 | Transcribe faster-whisper (`app/transcribe.py`) | ⚪ | `hotwords` ≥1.0.2 + fallback; **cache 1 model/process** |
 | 4 | Diarization sherpa-onnx (`app/diarize.py`) | ⚪ | URL model đã verify HTTP 200 (2026-07-17) |
 | 5 | Glossary 2 tầng (`app/glossary.py`) | ⚪ | |
 | 6 | Tách câu + gán speaker (`app/segment.py`) | ⚪ | |
-| 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | ⚪ | |
-| 7b | Pipeline tổng (`app/pipeline.py`) | ⚪ | |
+| 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | ⚪ | DOCX table style try/except |
+| 7b | Pipeline tổng (`app/pipeline.py`) | ⚪ | Dùng `load_model` đã cache |
 | 8 | Unit tests core (`tests/test_core.py`, 8 test) | ⚪ | Lần verify logic đầu tiên của Task 1, 5, 6, 7 |
-| 9 | Web server FastAPI (`app/server.py`) | ⚪ | Code đầy đủ trong plan |
-| 10 | UI web tiếng Việt (`app/static/index.html`) | ⚪ | Spec 6 mục trong plan |
+| 9 | Web server FastAPI (`app/server.py`) | ⚪ | **409 nếu đã có job running**; filename export = stem gốc |
+| 10 | UI web tiếng Việt (`app/static/index.html`) | ⚪ | Spec 6 mục + **checklist QA PASS/FAIL** trong plan |
 | 11 | Script cài đặt 1-click (4 file) | ⚪ | Windows cần máy thật để verify |
-| 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | ⚪ | Chốt chặn lệch API sherpa-onnx / faster-whisper |
+| 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | ⚪ | **macOS-only** (`say`); Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | ⚪ | Cần người dùng cung cấp audio thật + transcript tay |
-| 13 | README người dùng cuối | ⚪ | Điền số WER từ Task 12b vào bảng model |
+| 13 | README người dùng cuối | ⚪ | Đường dẫn data Mac/Windows/Linux + bảng WER từ 12b |
 | 14 | Nghiệm thu 6 tiêu chí + tag `v0.1.0` | ⚪ | Ghi PASS/FAIL vào bảng dưới |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
@@ -49,6 +51,10 @@
 ## Việc treo / rủi ro đang mở
 
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
-- [ ] API sherpa-onnx / faster-whisper có thể lệch phiên bản → Task 12 sẽ phát hiện
+- [ ] API sherpa-onnx / faster-whisper / static-ffmpeg có thể lệch phiên bản → Task 12 sẽ phát hiện
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b cần người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay
+- [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
+- [x] ~~Job song song OOM~~ — đã chốt: 1 job + HTTP 409 (plan review)
+- [x] ~~Reload model mỗi job~~ — đã chốt: cache 1 model/process (plan review)
+- [x] ~~numpy transitive only~~ — đã khai báo tường minh (plan review)
