@@ -3,7 +3,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
-from . import config, diarize, glossary, media, segment, transcribe
+from . import checkpoint, config, diarize, glossary, media, segment, transcribe
 
 ProgressCb = Callable[[str, float, str], None]  # (stage, percent 0-100, message)
 
@@ -42,7 +42,9 @@ def run(
            else f"Lần đầu dùng model này: đang tải về ({size}), có thể mất vài phút…")
     model = transcribe.load_model(model_key)
 
-    # 3. Transcribe (chiếm phần lớn thời gian)
+    # 3. Transcribe (chiếm phần lớn thời gian) — checkpoint từng segment ra đĩa
+    partial_path = work_dir / "partial.jsonl"
+    partial_path.unlink(missing_ok=True)  # job chạy lại trong cùng dir không dính dữ liệu cũ
     report("transcribe", 12, "Đang chuyển giọng nói thành văn bản…")
     settings = config.load_settings()
     words = transcribe.transcribe(
@@ -53,6 +55,7 @@ def run(
         progress_cb=lambda f: report(
             "transcribe", 12 + f * 58, f"Đang chuyển giọng nói thành văn bản… {int(f * 100)}%"
         ),
+        segment_cb=lambda ws: checkpoint.append_words(partial_path, ws),
     )
 
     # 4. Diarization

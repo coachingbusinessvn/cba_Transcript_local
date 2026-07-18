@@ -45,8 +45,13 @@ def transcribe(
     initial_prompt: str | None = None,
     hotwords: str | None = None,
     progress_cb: Callable[[float], None] | None = None,
+    segment_cb: Callable[[list[Word]], None] | None = None,
 ) -> list[Word]:
-    """Chạy transcript, trả về danh sách từ kèm timestamp (giây)."""
+    """Chạy transcript, trả về danh sách từ kèm timestamp (giây).
+
+    segment_cb (nếu có) được gọi với danh sách Word của TỪNG segment ngay khi
+    segment đó xong — dùng để checkpoint ra đĩa cho file dài.
+    """
     segments, _info = model.transcribe(
         str(wav_path),
         language=None if language == "auto" else language,
@@ -62,9 +67,12 @@ def transcribe(
     words: list[Word] = []
     for seg in segments:
         if seg.words:
-            words.extend(Word(w.start, w.end, w.word) for w in seg.words)
+            new = [Word(w.start, w.end, w.word) for w in seg.words]
         else:
-            words.append(Word(seg.start, seg.end, seg.text))
+            new = [Word(seg.start, seg.end, seg.text)]
+        words.extend(new)
+        if segment_cb:
+            segment_cb(new)
         if progress_cb and duration > 0:
             progress_cb(min(seg.end / duration, 1.0))
     return words

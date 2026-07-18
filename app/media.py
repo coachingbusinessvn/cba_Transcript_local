@@ -18,6 +18,36 @@ def ffmpeg_path() -> str:
     return static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()[0]
 
 
+def ffprobe_path() -> str:
+    """Như ffmpeg_path nhưng cho ffprobe (static-ffmpeg trả về cặp (ffmpeg, ffprobe))."""
+    found = shutil.which("ffprobe")
+    if found:
+        return found
+    import static_ffmpeg.run
+
+    return static_ffmpeg.run.get_or_fetch_platform_executables_else_raise()[1]
+
+
+def duration_seconds(path: Path) -> float | None:
+    """Thời lượng file (giây) qua ffprobe. Trả về None nếu không đọc được — caller tự quyết."""
+    cmd = [
+        ffprobe_path(), "-v", "error",
+        "-show_entries", "format=duration",
+        "-of", "default=noprint_wrappers=1:nokey=1",
+        str(path),
+    ]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if proc.returncode != 0:
+        return None
+    try:
+        return float(proc.stdout.strip())
+    except ValueError:
+        return None
+
+
 def _run_ffmpeg(args: list[str]) -> None:
     cmd = [ffmpeg_path(), "-hide_banner", "-y", *args]
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -56,8 +86,13 @@ def wav_duration_seconds(wav_path: Path) -> float:
         return w.getnframes() / float(w.getframerate())
 
 
-def read_wav16k_float32(wav_path: Path):
-    """Đọc WAV 16kHz mono thành mảng float32 [-1, 1] cho sherpa-onnx."""
+def read_wav16k_float32(wav_path: Path, _chunk_frames: int = 960_000):
+    """Đọc WAV 16kHz mono thành mảng float32 [-1, 1] cho sherpa-onnx.
+
+    Đọc theo khối (mặc định 60s/khối) vào mảng float32 cấp phát sẵn:
+    file 3 giờ chỉ tốn ~4 B/sample thay vì ~10 B/sample đỉnh như đọc một cục
+    (bytes int16 + bản astype + bản kết quả phép chia).
+    """
     import numpy as np
 
     with wave.open(str(wav_path), "rb") as w:
@@ -65,5 +100,13 @@ def read_wav16k_float32(wav_path: Path):
         # bị đọc thành mẫu rác cho diarization.
         if w.getframerate() != 16000 or w.getnchannels() != 1:
             raise ValueError("WAV phải là 16kHz mono")
-        data = w.readframes(w.getnframes())
-    return np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0
+        n = w.getnframes()
+        out = np.empty(n, dtype=np.float32)
+        pos = 0
+        while pos < n:
+            data = w.readframes(min(_chunk_frames, n - pos))
+            block = np.frombuffer(data, dtype=np.int16)
+            out[pos : pos + len(block)] = block
+            pos += len(block)
+    out /= 32768.0  # in-place, không tạo mảng mới
+    return out
