@@ -32,8 +32,17 @@ Lần đầu dùng model cần mạng để tải model về máy; sau đó có 
 4. Tuỳ chọn: model, ngôn ngữ, bật/tắt phân biệt người nói, số người nói (0 = tự đoán), glossary.
 5. Bấm **Bắt đầu** và đợi thanh tiến trình hoàn tất.
 6. **Đổi tên người nói** (nếu bật diarization) rồi **tải** DOCX / XLSX / SRT / TXT.
+7. Sửa nhầm lẫn người nói: mỗi dòng transcript có dropdown chọn lại người nói trước khi xuất file (chỉnh sửa sống trong trang — refresh sẽ mất).
 
 > **Lưu ý v1:** chỉ chạy **một job tại một thời điểm**. Nếu gửi job khi đang xử lý, hệ thống trả lỗi (HTTP 409) — đợi job hiện tại xong rồi thử lại.
+
+---
+
+## File dài (1–4 giờ)
+
+- File **trên 2 giờ**: app tự tắt "phân biệt người nói" để tránh hết bộ nhớ — transcript và timestamp vẫn đầy đủ (có ghi chú vàng trên màn hình).
+- File **trên 4 giờ**: app từ chối và khuyên cắt file thành phần ngắn hơn.
+- Nếu app bị tắt giữa chừng (mất điện, đóng nhầm cửa sổ): mở lại app, phần transcript đã làm xong sẽ tự hiện lại — có thể xuất file ngay, hoặc chạy lại từ đầu để có bản đầy đủ.
 
 ---
 

@@ -10,22 +10,24 @@
 
 | # | Task | Lớp | Trạng thái | Ghi chú |
 |---|------|-----|-----------|---------|
-| 1 | Đọc WAV theo khối — giảm ~2.5× đỉnh RAM (`app/media.py`) | B | ⚪ | Giữ nguyên chữ ký, thêm `_chunk_frames` |
-| 2 | `media.duration_seconds` qua ffprobe | C | ⚪ | Trả `None` nếu không đọc được, không raise |
-| 3 | Module checkpoint JSONL (`app/checkpoint.py`) | A | ⚪ | Parser chịu được dòng cuối bị cắt dở |
-| 4 | Nối checkpoint vào transcribe + pipeline (`segment_cb`, `partial.jsonl`) | A | ⚪ | Xóa partial cũ khi job bắt đầu |
-| 5 | Server: policy file dài + khôi phục kết quả một phần + export partial | A+C | ⚪ | Ngưỡng: 4h từ chối, 2h tắt diarize; job dict thêm `model`/`note` |
-| 6 | UI: hiển thị note vàng + render kết quả một phần khi error | A+C | ⚪ | `noteBox`; error + result → vẫn showResults |
-| 7 | README mục "File dài" + nghiệm thu file thật ≥ 2h | docs | ⚪ | Cần file dài của người dùng để nghiệm thu đầy đủ |
+| 1 | Đọc WAV theo khối — giảm ~2.5× đỉnh RAM (`app/media.py`) | B | 🟢 | Giữ nguyên chữ ký, thêm `_chunk_frames` |
+| 2 | `media.duration_seconds` qua ffprobe | C | 🟢 | Trả `None` nếu không đọc được, không raise |
+| 3 | Module checkpoint JSONL (`app/checkpoint.py`) | A | 🟢 | Parser chịu được dòng cuối bị cắt dở |
+| 4 | Nối checkpoint vào transcribe + pipeline (`segment_cb`, `partial.jsonl`) | A | 🟢 | Xóa partial cũ khi job bắt đầu |
+| 5 | Server: policy file dài + khôi phục kết quả một phần + export partial | A+C | 🟢 | Ngưỡng: 4h từ chối, 2h tắt diarize; job dict thêm `model`/`note` |
+| 6 | UI: hiển thị note vàng + render kết quả một phần khi error | A+C | 🟢 | `noteBox`; error + result → vẫn showResults |
+| 7 | README mục "File dài" + nghiệm thu file thật ≥ 2h | docs | 🟢 | Unit/integration pass; file thật ≥ 2h cần người dùng |
+
 
 ## Nghiệm thu file dài (Task 7 — điền khi chạy)
 
 | Tiêu chí | Kết quả | Ghi chú |
 |---|---|---|
-| 1. File > 2h: note vàng hiện, job chạy hết không OOM | — | Cần file thật ≥ 2h |
-| 2. Kill process giữa chừng → mở lại thấy kết quả một phần, xuất DOCX được | — | |
-| 3. File > 4h bị từ chối kèm hướng dẫn cắt file | — | Có thể giả lập bằng file ngắn + hạ `_MAX_INPUT_SECONDS` tạm |
-| 4. File ngắn (< 2h): hành vi y như trước, không note | — | Regression check |
+| 1. File > 2h: note vàng hiện, job chạy hết không OOM | ⏳ | Cần file thật ≥ 2h từ người dùng |
+| 2. Kill process giữa chừng → mở lại thấy kết quả một phần, xuất DOCX được | ✅ unit | `test_get_job_recovers_partial_from_disk` |
+| 3. File > 4h bị từ chối kèm hướng dẫn cắt file | ✅ unit | `test_long_audio_policy` (5h → 400) |
+| 4. File ngắn (< 2h): hành vi y như trước, không note | ✅ unit | policy 10 phút giữ nguyên |
+
 
 ## Việc treo / rủi ro đang mở
 

@@ -12,19 +12,20 @@
 
 | # | Task | Trạng thái | Ghi chú |
 |---|------|-----------|---------|
-| 1 | Server: `_apply_speaker_overrides` + body export nhận `speakers` | ⚪ | Best-effort, entry rác bỏ qua êm, không 400 |
-| 2 | UI: dropdown mỗi dòng + `collectSpeakerOverrides` gửi kèm export | ⚪ | Option tính 1 lần tại `showResults`; đổi tên → nhãn cập nhật |
-| 3 | README + cập nhật bảng này | ⚪ | |
+| 1 | Server: `_apply_speaker_overrides` + body export nhận `speakers` | 🟢 | Best-effort, entry rác bỏ qua êm, không 400 |
+| 2 | UI: dropdown mỗi dòng + `collectSpeakerOverrides` gửi kèm export | 🟢 | Option tính 1 lần tại `showResults`; đổi tên → nhãn cập nhật |
+| 3 | README + cập nhật bảng này | 🟢 | |
 
 ## Nghiệm thu (điền khi chạy)
 
 | Tiêu chí | Kết quả | Ghi chú |
 |---|---|---|
-| 1. Mỗi dòng có speaker hiện dropdown; dòng không speaker giữ text rỗng | — | |
-| 2. Đổi speaker 1 dòng → export SRT/DOCX phản ánh đúng | — | |
-| 3. Đổi tên người nói → nhãn trong mọi dropdown cập nhật, lựa chọn giữ nguyên | — | |
-| 4. Gán lại hết dòng của 1 speaker → speaker đó vẫn còn trong dropdown các dòng khác | — | |
-| 5. File không diarization: không dropdown, export như cũ (regression) | — | |
+| 1. Mỗi dòng có speaker hiện dropdown; dòng không speaker giữ text rỗng | ✅ code | `spk-select` khi có speakerIds; text rỗng khi null |
+| 2. Đổi speaker 1 dòng → export SRT/DOCX phản ánh đúng | ✅ unit | `test_export_srt_with_speaker_override` |
+| 3. Đổi tên người nói → nhãn trong mọi dropdown cập nhật, lựa chọn giữ nguyên | ✅ code | `renderPreview` dùng `speakerLabel` |
+| 4. Gán lại hết dòng của 1 speaker → speaker đó vẫn còn trong dropdown các dòng khác | ✅ code | `speakerIds` snapshot tại `showResults` |
+| 5. File không diarization: không dropdown, export như cũ (regression) | ✅ code | `!speakerIds.length` → text |
+
 
 ## Việc treo / rủi ro đang mở
 
