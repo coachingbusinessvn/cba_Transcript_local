@@ -61,6 +61,9 @@ def read_wav16k_float32(wav_path: Path):
     import numpy as np
 
     with wave.open(str(wav_path), "rb") as w:
-        assert w.getframerate() == 16000 and w.getnchannels() == 1, "WAV phải là 16kHz mono"
+        # Không dùng assert: sẽ bị bỏ qua khi chạy python -O, khiến WAV sai định dạng
+        # bị đọc thành mẫu rác cho diarization.
+        if w.getframerate() != 16000 or w.getnchannels() != 1:
+            raise ValueError("WAV phải là 16kHz mono")
         data = w.readframes(w.getnframes())
     return np.frombuffer(data, dtype=np.int16).astype(np.float32) / 32768.0

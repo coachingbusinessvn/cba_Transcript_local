@@ -54,7 +54,7 @@ def ensure_models() -> tuple[Path, Path]:
         archive = d / "segmentation.tar.bz2"
         _download(_SEG_URL, archive)
         with tarfile.open(archive, "r:bz2") as tf:
-            tf.extractall(d)
+            tf.extractall(d, filter="data")  # chặn path traversal + hết deprecation 3.14
         archive.unlink()
 
     emb_model = d / "3dspeaker_eres2net_base_16k.onnx"

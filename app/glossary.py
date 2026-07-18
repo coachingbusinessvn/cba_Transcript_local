@@ -73,7 +73,9 @@ def _fuzzy_snap(text: str, term: str) -> str:
 
 def correct(text: str, glossary: Glossary) -> str:
     for wrong, right in glossary.replacements:
-        text = _boundary_pattern(wrong).sub(right, text)
+        # Dùng hàm thay thế thay vì chuỗi mẫu: chuỗi glossary do người dùng nhập
+        # có thể chứa "\" hoặc "\1" khiến re.sub hiểu là escape/backreference và lỗi.
+        text = _boundary_pattern(wrong).sub(lambda _m, r=right: r, text)
     for term in glossary.keywords:
         if len(term) >= 4:  # từ quá ngắn dễ thay nhầm
             text = _fuzzy_snap(text, term)

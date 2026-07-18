@@ -1,6 +1,10 @@
 """Web server local: FastAPI + job chạy nền trong thread. Chạy: python -m app.server"""
+import json
+import logging
 import socket
 import threading
+import time
+import traceback
 import uuid
 import webbrowser
 from pathlib import Path
@@ -8,13 +12,20 @@ from typing import Annotated
 
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from . import config, export, media, pipeline
 from .segment import Sentence
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+log = logging.getLogger("vitranscript")
+
 app = FastAPI(title="ViTranscript")
 JOBS: dict[str, dict] = {}
+_JOBS_LOCK = threading.Lock()
 _STATIC = Path(__file__).parent / "static"
 _EXPORTERS = {
     "docx": export.to_docx,
@@ -22,15 +33,45 @@ _EXPORTERS = {
     "srt": export.to_srt,
     "txt": export.to_txt,
 }
+# 1x1 transparent PNG — tránh 404 favicon làm nhiễu console
+_FAVICON = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+    b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
+)
 
 
-def _any_job_running() -> bool:
-    return any(j.get("status") == "running" for j in JOBS.values())
+def _status_path(job_id: str) -> Path:
+    return config.jobs_dir() / job_id / "status.json"
+
+
+def _save_job(job_id: str, job: dict) -> None:
+    """Ghi trạng thái job ra đĩa (để UI không mất hết nếu process bị kill)."""
+    path = _status_path(job_id)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Không ghi result khổng lồ quá thường xuyên — luôn ghi khi done/error
+        path.write_text(json.dumps(job, ensure_ascii=False, default=str), encoding="utf-8")
+    except OSError as e:
+        log.warning("Không ghi được status job %s: %s", job_id, e)
+
+
+def _load_job_from_disk(job_id: str) -> dict | None:
+    path = _status_path(job_id)
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
 
 
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (_STATIC / "index.html").read_text(encoding="utf-8")
+
+
+@app.get("/favicon.ico")
+def favicon() -> Response:
+    return Response(content=_FAVICON, media_type="image/png")
 
 
 @app.get("/api/meta")
@@ -51,12 +92,24 @@ def meta():
 
 
 def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
-    job = JOBS[job_id]
+    last_save = 0.0
 
     def progress(stage: str, pct: float, msg: str):
-        job.update(stage=stage, percent=round(pct, 1), message=msg)
+        nonlocal last_save
+        with _JOBS_LOCK:
+            job = JOBS.get(job_id)
+            if not job:
+                return
+            job.update(stage=stage, percent=round(pct, 1), message=msg)
+            snap = dict(job)
+        # Throttle ghi đĩa: tối đa ~2 lần/giây (diarize callback rất dày)
+        now = time.monotonic()
+        if now - last_save >= 0.5 or pct >= 100:
+            last_save = now
+            _save_job(job_id, snap)
 
     try:
+        log.info("Job %s bắt đầu: %s model=%s", job_id, input_path.name, opts["model"])
         result = pipeline.run(
             input_path,
             input_path.parent,
@@ -67,9 +120,25 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
             glossary_text=opts["glossary"],
             progress=progress,
         )
-        job.update(status="done", result=result, percent=100)
+        with _JOBS_LOCK:
+            job = JOBS[job_id]
+            job.update(status="done", result=result, percent=100, message="Hoàn tất!")
+            snap = dict(job)
+        _save_job(job_id, snap)
+        log.info(
+            "Job %s xong: %d câu, %.0fs",
+            job_id,
+            len(result.get("sentences") or []),
+            result.get("duration") or 0,
+        )
     except Exception as e:
-        job.update(status="error", message=f"Lỗi: {e}", percent=100)
+        log.error("Job %s lỗi: %s\n%s", job_id, e, traceback.format_exc())
+        with _JOBS_LOCK:
+            job = JOBS.get(job_id, {})
+            job.update(status="error", message=f"Lỗi: {e}", percent=100)
+            JOBS[job_id] = job
+            snap = dict(job)
+        _save_job(job_id, snap)
 
 
 @app.post("/api/jobs")
@@ -81,11 +150,6 @@ async def create_job(
     num_speakers: Annotated[int, Form()] = 0,
     glossary: Annotated[str, Form()] = "",
 ):
-    if _any_job_running():
-        raise HTTPException(
-            409,
-            "Đang có job khác chạy. Vui lòng đợi xong rồi thử lại.",
-        )
     if model not in config.MODEL_REGISTRY:
         raise HTTPException(400, "Model không hợp lệ")
     name = Path(file.filename or "input")
@@ -93,23 +157,41 @@ async def create_job(
         raise HTTPException(400, f"Định dạng {name.suffix} chưa hỗ trợ")
 
     job_id = uuid.uuid4().hex[:12]
-    job_dir = config.jobs_dir() / job_id
-    job_dir.mkdir(parents=True)
-    input_path = job_dir / ("input" + name.suffix.lower())
-    with input_path.open("wb") as f:
-        while chunk := await file.read(1 << 20):
-            f.write(chunk)
-
-    config.save_settings({"model": model, "language": language})
-    config.save_glossary_text(glossary)
-
-    JOBS[job_id] = {
+    job = {
         "status": "running",
         "stage": "queued",
         "percent": 0,
         "message": "Đang chuẩn bị…",
         "filename": name.name,
     }
+    # Đặt chỗ nguyên tử: kiểm tra "đang chạy" và ghi job trong cùng một lần giữ lock,
+    # tránh hai request cùng lọt qua kiểm tra rồi cùng khởi chạy.
+    with _JOBS_LOCK:
+        if any(j.get("status") == "running" for j in JOBS.values()):
+            raise HTTPException(
+                409,
+                "Đang có job khác chạy. Vui lòng đợi xong rồi thử lại.",
+            )
+        JOBS[job_id] = job
+    _save_job(job_id, job)
+
+    # Nếu chuẩn bị file thất bại, phải nhả chỗ đã đặt — nếu không job "running"
+    # sẽ kẹt vĩnh viễn và chặn mọi job sau.
+    try:
+        job_dir = config.jobs_dir() / job_id
+        job_dir.mkdir(parents=True)
+        input_path = job_dir / ("input" + name.suffix.lower())
+        with input_path.open("wb") as f:
+            while chunk := await file.read(1 << 20):
+                f.write(chunk)
+
+        config.save_settings({"model": model, "language": language})
+        config.save_glossary_text(glossary)
+    except Exception:
+        with _JOBS_LOCK:
+            JOBS.pop(job_id, None)
+        raise
+
     opts = {
         "model": model,
         "language": language,
@@ -117,14 +199,33 @@ async def create_job(
         "num_speakers": num_speakers,
         "glossary": glossary,
     }
-    threading.Thread(target=_run_job, args=(job_id, input_path, opts), daemon=True).start()
+    # daemon: khi process bị tắt (Ctrl+C) thì job dừng theo, không giữ interpreter
+    # sống chờ transcript dài xong. Job dở dang được _get_job phục hồi từ disk.
+    t = threading.Thread(target=_run_job, args=(job_id, input_path, opts), daemon=True)
+    t.start()
     return {"job_id": job_id}
 
 
 def _get_job(job_id: str) -> dict:
-    if job_id not in JOBS:
-        raise HTTPException(404, "Không tìm thấy job")
-    return JOBS[job_id]
+    with _JOBS_LOCK:
+        if job_id in JOBS:
+            return dict(JOBS[job_id])
+    disk = _load_job_from_disk(job_id)
+    if disk:
+        # Job từ lần chạy trước: nếu còn "running" thì process cũ đã chết
+        if disk.get("status") == "running":
+            disk["status"] = "error"
+            disk["message"] = (
+                "Server đã dừng giữa chừng (process bị tắt). "
+                "Hãy bấm Bắt đầu lại — model đã tải sẵn nên lần sau nhanh hơn."
+            )
+            disk["percent"] = 100
+            _save_job(job_id, disk)
+        # Không cache job đã kết thúc vào RAM: mỗi job "done" mang theo toàn bộ
+        # transcript, cache lại sẽ phình bộ nhớ dần theo số lần truy vấn lịch sử.
+        # Nguồn chân lý vẫn là status.json trên đĩa.
+        return disk
+    raise HTTPException(404, "Không tìm thấy job")
 
 
 @app.get("/api/jobs/{job_id}")
@@ -184,7 +285,8 @@ def main() -> None:
     port = _free_port()
     threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     print(f"\n  ViTranscript đang chạy tại http://127.0.0.1:{port}  (Ctrl+C để thoát)\n")
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    # log_level info để thấy job start/end khi debug
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
 
 
 if __name__ == "__main__":
