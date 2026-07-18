@@ -193,6 +193,10 @@
       white-space: pre-wrap;
     }
     .error.show { display: block; }
+    .note {
+      margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+      background: #fff8e6; color: #7a5b00; font-size: 14px; line-height: 1.5;
+    }
     #results { display: none; }
     #results.show { display: block; }
     .speakers {
@@ -241,6 +245,10 @@
       width: 1%;
     }
     td.spk { white-space: nowrap; width: 1%; font-weight: 600; }
+    .spk-select {
+      width: 100%; padding: 4px 6px; border-radius: 6px;
+      border: 1px solid #d5d9e0; background: transparent; font: inherit; font-size: 13px;
+    }
     .empty {
       color: var(--muted);
       font-size: 0.9rem;
@@ -310,6 +318,7 @@
         <div class="bar"><i id="barFill"></i></div>
       </div>
       <div class="error" id="errorBox"></div>
+      <div class="note" id="noteBox" hidden></div>
     </section>
 
     <section class="card" id="results">
@@ -364,6 +373,7 @@
       const messageEl = $("message");
       const barFill = $("barFill");
       const errorBox = $("errorBox");
+      const noteBox = $("noteBox");
       const results = $("results");
       const speakerNamesEl = $("speakerNames");
       const previewBody = $("previewBody");
@@ -375,10 +385,17 @@
       let pollTimer = null;
       let sentences = [];
       let names = {};
+      let speakerIds = [];        // speaker phát hiện được — tính 1 lần tại showResults
+      let originalSpeakers = [];  // snapshot để tính override khi export
 
       function showError(msg) {
         errorBox.textContent = msg || "";
         errorBox.classList.toggle("show", !!msg);
+      }
+
+      function showNote(msg) {
+        noteBox.textContent = msg || "";
+        noteBox.hidden = !msg;
       }
 
       function setProgress(percent, message) {
@@ -484,6 +501,15 @@
         return out;
       }
 
+      function collectSpeakerOverrides() {
+        const out = {};
+        sentences.forEach((s, i) => {
+          if (s.speaker === null || s.speaker === undefined) return;
+          if (originalSpeakers[i] !== s.speaker) out[String(i)] = s.speaker;
+        });
+        return out;
+      }
+
       function renderPreview() {
         const list = sentences.slice(0, 300);
         previewBody.innerHTML = "";
@@ -495,7 +521,21 @@
           tdT.textContent = fmtTime(s.start) + " – " + fmtTime(s.end);
           const tdS = document.createElement("td");
           tdS.className = "spk";
-          tdS.textContent = speakerLabel(s.speaker);
+          if (s.speaker === null || s.speaker === undefined || !speakerIds.length) {
+            tdS.textContent = speakerLabel(s.speaker);
+          } else {
+            const sel = document.createElement("select");
+            sel.className = "spk-select";
+            speakerIds.forEach((id) => {
+              const opt = document.createElement("option");
+              opt.value = String(id);
+              opt.textContent = speakerLabel(id);
+              if (id === s.speaker) opt.selected = true;
+              sel.appendChild(opt);
+            });
+            sel.addEventListener("change", () => { s.speaker = Number(sel.value); });
+            tdS.appendChild(sel);
+          }
           const tdX = document.createElement("td");
           tdX.textContent = s.text || "";
           tr.appendChild(tdT);
@@ -547,6 +587,14 @@
       function showResults(job) {
         const result = job.result || {};
         sentences = result.sentences || [];
+        originalSpeakers = sentences.map((s) => s.speaker);
+        const seenIds = new Set();
+        speakerIds = [];
+        sentences.forEach((s) => {
+          if (s.speaker === null || s.speaker === undefined) return;
+          if (!seenIds.has(s.speaker)) { seenIds.add(s.speaker); speakerIds.push(s.speaker); }
+        });
+        speakerIds.sort((a, b) => Number(a) - Number(b));
         names = {};
         results.classList.add("show");
         renderSpeakers();
@@ -574,11 +622,15 @@
           pollFailCount = 0;
           const job = await r.json();
           setProgress(job.percent, job.message || "");
+          showNote(job.note);
           if (job.status === "running") return;
           stopPoll();
           setRunning(false);
           if (job.status === "error") {
             showError(job.message || "Lỗi không xác định");
+            if (job.result && job.result.sentences && job.result.sentences.length) {
+              showResults(job);  // kết quả một phần khôi phục từ checkpoint
+            }
             return;
           }
           if (job.status === "done") {
@@ -605,6 +657,7 @@
 
       startBtn.addEventListener("click", async () => {
         showError("");
+        showNote(null);
         results.classList.remove("show");
         sentences = [];
         names = {};
@@ -663,7 +716,7 @@
       async function exportFmt(fmt) {
         if (!currentJobId) return;
         showError("");
-        const body = { format: fmt, names: collectNames() };
+        const body = { format: fmt, names: collectNames(), speakers: collectSpeakerOverrides() };
         try {
           const r = await fetch("/api/jobs/" + currentJobId + "/export", {
             method: "POST",
