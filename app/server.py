@@ -7,6 +7,7 @@ import time
 import traceback
 import uuid
 import webbrowser
+from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
@@ -14,7 +15,7 @@ import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
-from . import config, export, media, pipeline
+from . import checkpoint, config, export, media, pipeline, segment
 from .segment import Sentence
 
 logging.basicConfig(
@@ -39,6 +40,43 @@ _FAVICON = (
     b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
     b"\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82"
 )
+
+# Chính sách file dài — chống OOM trên máy CPU yếu (xem docs/04-plan-long-audio.md)
+_MAX_INPUT_SECONDS = 14_400  # 4 giờ: từ chối, khuyên cắt file
+_MAX_DIARIZE_SECONDS = 7_200  # 2 giờ: tự tắt diarization
+
+
+def _long_audio_policy(duration: float | None, diarize: bool) -> tuple[bool, str | None]:
+    """Trả về (diarize hiệu lực, ghi chú cho người dùng). Raise 400 nếu file quá dài."""
+    if duration is None:
+        return diarize, None  # không đo được thời lượng — không chặn
+    if duration > _MAX_INPUT_SECONDS:
+        raise HTTPException(
+            400,
+            f"File dài {duration / 3600:.1f} giờ — vượt giới hạn 4 giờ. "
+            "Hãy cắt file thành các phần ngắn hơn "
+            "(ví dụ bằng QuickTime/ffmpeg) rồi chạy từng phần.",
+        )
+    if diarize and duration > _MAX_DIARIZE_SECONDS:
+        return False, (
+            f"File dài {duration / 3600:.1f} giờ nên đã tự tắt phân biệt người nói "
+            "để tránh hết bộ nhớ. Transcript và timestamp vẫn đầy đủ."
+        )
+    return diarize, None
+
+
+def _apply_speaker_overrides(sentences: list[Sentence], overrides: dict | None) -> None:
+    """Áp chỉnh sửa người nói từ client (best-effort, entry không hợp lệ bỏ qua êm)."""
+    if not overrides:
+        return
+    valid = {s.speaker for s in sentences if s.speaker is not None}
+    for k, v in overrides.items():
+        try:
+            i, spk = int(k), int(v)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(sentences) and spk in valid and sentences[i].speaker is not None:
+            sentences[i].speaker = spk
 
 
 def _status_path(job_id: str) -> Path:
@@ -163,6 +201,7 @@ async def create_job(
         "percent": 0,
         "message": "Đang chuẩn bị…",
         "filename": name.name,
+        "model": model,
     }
     # Đặt chỗ nguyên tử: kiểm tra "đang chạy" và ghi job trong cùng một lần giữ lock,
     # tránh hai request cùng lọt qua kiểm tra rồi cùng khởi chạy.
@@ -184,6 +223,13 @@ async def create_job(
         with input_path.open("wb") as f:
             while chunk := await file.read(1 << 20):
                 f.write(chunk)
+
+        duration = media.duration_seconds(input_path)
+        diarize, note = _long_audio_policy(duration, diarize)
+        if note:
+            with _JOBS_LOCK:
+                JOBS[job_id]["note"] = note
+            _save_job(job_id, JOBS[job_id])
 
         config.save_settings({"model": model, "language": language})
         config.save_glossary_text(glossary)
@@ -215,11 +261,29 @@ def _get_job(job_id: str) -> dict:
         # Job từ lần chạy trước: nếu còn "running" thì process cũ đã chết
         if disk.get("status") == "running":
             disk["status"] = "error"
-            disk["message"] = (
-                "Server đã dừng giữa chừng (process bị tắt). "
-                "Hãy bấm Bắt đầu lại — model đã tải sẵn nên lần sau nhanh hơn."
-            )
             disk["percent"] = 100
+            words = checkpoint.load_words(_status_path(job_id).parent / "partial.jsonl")
+            if words:
+                sentences = segment.build_sentences(words)
+                disk["partial"] = True
+                disk["result"] = {
+                    "sentences": [asdict(s) for s in sentences],
+                    "duration": words[-1].end,
+                    "num_speakers": 0,
+                    "extracted_audio": None,
+                    "model": disk.get("model", "?"),
+                }
+                disk["message"] = (
+                    "Server đã dừng giữa chừng — nhưng phần transcript làm xong "
+                    f"({len(sentences)} câu, tới phút {words[-1].end / 60:.0f}) "
+                    "đã được khôi phục bên dưới. "
+                    "Chạy lại file để có bản đầy đủ."
+                )
+            else:
+                disk["message"] = (
+                    "Server đã dừng giữa chừng (process bị tắt). "
+                    "Hãy bấm Bắt đầu lại — model đã tải sẵn nên lần sau nhanh hơn."
+                )
             _save_job(job_id, disk)
         # Không cache job đã kết thúc vào RAM: mỗi job "done" mang theo toàn bộ
         # transcript, cache lại sẽ phình bộ nhớ dần theo số lần truy vấn lịch sử.
@@ -236,13 +300,14 @@ def job_status(job_id: str):
 @app.post("/api/jobs/{job_id}/export")
 def export_job(job_id: str, body: dict):
     job = _get_job(job_id)
-    if job.get("status") != "done":
+    if not (job.get("result") or {}).get("sentences"):
         raise HTTPException(409, "Job chưa xong")
     fmt = body.get("format", "docx")
     if fmt not in _EXPORTERS:
         raise HTTPException(400, "Định dạng không hợp lệ")
     names = body.get("names") or {}
     sentences = [Sentence(**s) for s in job["result"]["sentences"]]
+    _apply_speaker_overrides(sentences, body.get("speakers"))
     stem = Path(job["filename"]).stem
     out = config.jobs_dir() / job_id / f"{stem}.{fmt}"
     if fmt == "docx":
