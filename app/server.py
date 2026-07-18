@@ -218,7 +218,8 @@ async def create_job(
     # sẽ kẹt vĩnh viễn và chặn mọi job sau.
     try:
         job_dir = config.jobs_dir() / job_id
-        job_dir.mkdir(parents=True)
+        # _save_job ở trên đã tạo thư mục (ghi status.json) — exist_ok tránh FileExistsError 500
+        job_dir.mkdir(parents=True, exist_ok=True)
         input_path = job_dir / ("input" + name.suffix.lower())
         with input_path.open("wb") as f:
             while chunk := await file.read(1 << 20):
