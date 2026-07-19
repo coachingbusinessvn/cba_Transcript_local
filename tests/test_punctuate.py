@@ -423,3 +423,14 @@ def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_p
         "Không thể chạy model dấu câu; transcript gốc vẫn được giữ nguyên.",
     ]
     server.JOBS.pop(job_id, None)
+
+
+def test_ui_contains_punctuation_checkbox_and_form_contract():
+    from pathlib import Path
+
+    html = Path("app/static/index.html").read_text(encoding="utf-8")
+    assert 'type="checkbox" id="punctuate" checked' in html
+    assert "Tự chèn dấu câu (khuyên dùng cho PhoWhisper)" in html
+    assert 'fd.append("punctuate", punctuateEl.checked ? "true" : "false")' in html
+    assert "settings.punctuate" in html
+    assert "data.punctuation.downloaded" in html

@@ -296,6 +296,13 @@
       </div>
       <div class="field">
         <label class="check">
+          <input type="checkbox" id="punctuate" checked />
+          Tự chèn dấu câu (khuyên dùng cho PhoWhisper)
+        </label>
+        <div class="hint" id="punctuationHint">Lần đầu tải model dấu câu ~110 MB.</div>
+      </div>
+      <div class="field">
+        <label class="check">
           <input type="checkbox" id="diarize" checked />
           Phân biệt người nói
         </label>
@@ -364,6 +371,8 @@
       const fileNameEl = $("fileName");
       const modelEl = $("model");
       const languageEl = $("language");
+      const punctuateEl = $("punctuate");
+      const punctuationHintEl = $("punctuationHint");
       const diarizeEl = $("diarize");
       const numSpeakersEl = $("numSpeakers");
       const glossaryEl = $("glossary");
@@ -489,6 +498,11 @@
         const settings = data.settings || {};
         if (settings.model) modelEl.value = settings.model;
         if (settings.language) languageEl.value = settings.language;
+        if (typeof settings.punctuate === "boolean") punctuateEl.checked = settings.punctuate;
+        const punctuationMeta = data.punctuation || {};
+        punctuationHintEl.textContent = punctuationMeta.downloaded
+          ? "Model dấu câu đã tải · chạy offline được."
+          : "Lần đầu tải model dấu câu ~110 MB; các lần sau chạy offline.";
         glossaryEl.value = data.glossary || "";
       }
 
@@ -670,6 +684,7 @@
         fd.append("file", selectedFile, selectedFile.name);
         fd.append("model", modelEl.value);
         fd.append("language", languageEl.value);
+        fd.append("punctuate", punctuateEl.checked ? "true" : "false");
         fd.append("diarize", diarizeEl.checked ? "true" : "false");
         fd.append("num_speakers", String(Number(numSpeakersEl.value) || 0));
         fd.append("glossary", glossaryEl.value || "");
