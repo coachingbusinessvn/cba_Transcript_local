@@ -2,7 +2,7 @@
 
 **Ngày:** 2026-07-19
 
-**Trạng thái:** Đã duyệt thiết kế; chờ người dùng review spec trước khi lập plan
+**Trạng thái:** Người dùng đã duyệt ngày 2026-07-19; sẵn sàng triển khai theo plan
 
 **Phạm vi:** Phục hồi dấu câu và viết hoa sau ASR, trước khi tách câu
 
