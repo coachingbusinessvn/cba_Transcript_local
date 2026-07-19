@@ -11,3 +11,6 @@ eval/sample.*
 
 # Git worktrees
 .worktrees/
+
+# Claude Code local overrides (không commit)
+.claude/settings.local.json

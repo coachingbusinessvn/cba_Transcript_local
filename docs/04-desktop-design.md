@@ -1,6 +1,9 @@
 # Thiết kế: Vỏ desktop cho ViTranscript (v1.5)
 
 > Design doc đã chốt với người dùng ngày 2026-07-19. Bổ sung cho [01-bai-toan.md](01-bai-toan.md) và [02-plan.md](02-plan.md); triển khai **sau khi Task 14 (nghiệm thu v1) hoàn tất**.
+> Bản implementation-ready nằm tại `docs/09-spec-desktop-shell.md`, tracker tại
+> `docs/10-tasks-desktop-shell.md` trên worktree implementation. Tài liệu này giữ vai
+> trò tóm tắt quyết định sản phẩm.
 
 ## 1. Bối cảnh & quyết định đã chốt
 
@@ -22,7 +25,10 @@ Người dùng muốn app "desktop" trên Mac + Windows. Qua thảo luận đã 
 
 - Bundle tối giản tự tạo (KHÔNG PyInstaller): thư mục `ViTranscript.app/Contents/` gồm `Info.plist`, `MacOS/launcher` (shell script), `Resources/icon.icns`.
 - `install.command` **sinh** bundle này (nhúng đường dẫn tuyệt đối thư mục cài vào launcher script) rồi copy vào `/Applications`.
-- Double-click app: launcher chạy `uv run python -m app.server` qua `nohup`, **không mở Terminal**, log ghi ra `<data_dir>/logs/server.log`, browser tự mở như cũ.
+- Double-click app: launcher chạy `<install_dir>/.venv/bin/python -m app.server` qua
+  `nohup`, **không mở Terminal**, không phụ thuộc PATH/uv lúc dùng hằng ngày. Bootstrap
+  log ghi vào `<data_dir>/logs/launcher.log`, app log vào
+  `<data_dir>/logs/server.log`.
 
 ### 2.2 Vỏ Windows: shortcut + chạy ẩn console
 
@@ -41,18 +47,32 @@ Người dùng muốn app "desktop" trên Mac + Windows. Qua thảo luận đã 
 
 Chạy theo trình tự, có xác nhận trước khi xóa:
 
-1. Dừng server nếu đang chạy (`pkill -f "app.server"` / `taskkill`).
+1. Dừng server nếu đang chạy bằng `server-state.json`: PID sống chỉ được dừng sau khi
+   endpoint loopback `/api/runtime` xác nhận đúng app + instance ID + PID + port.
+   Không dùng `pkill -f`, không kill theo tên process.
 2. In dung lượng sẽ giải phóng, hỏi xác nhận **1 lần**, rồi xóa:
    - Data dir: `~/Library/Application Support/ViTranscript` / `%APPDATA%\ViTranscript` — gồm **model đã tải**, jobs, settings, glossary, logs.
    - `/Applications/ViTranscript.app` (Mac) / shortcuts Desktop + Start Menu (Windows).
    - `.venv` trong thư mục cài.
-3. Hỏi xác nhận **thứ 2 (tùy chọn)**: xóa luôn công cụ `uv` + Python 3.12 mà uv đã tải (`~/.local/bin/uv`, `~/.local/share/uv` và tương đương Windows). Mặc định GIỮ vì uv là tool dùng chung (~50MB), nhưng người muốn "sạch tuyệt đối" có lối đi.
+3. Hỏi xác nhận **thứ 2 (tùy chọn)**: xóa luôn executable `uv`/`uvx` và đúng thư
+   mục Python mà `uv python dir` xác nhận. Mặc định GIỮ và prompt cảnh báo đây là tool
+   dùng chung; không xóa một path suy đoán hoặc toàn bộ home/cache rộng.
 4. Kết thúc: nhắc người dùng xóa nốt thư mục cài (thư mục chứa chính script — script tự xóa thư mục cha có rủi ro trên Windows, để người dùng kéo vào Thùng rác là bước an toàn nhất).
 
 ### 2.5 Cập nhật README (mở rộng Task 13)
 
 - Mục cài đặt: thêm ảnh chụp màn hình từng bước vượt Gatekeeper (chuột phải → Open; macOS mới: System Settings → Privacy & Security → Open Anyway) và SmartScreen (More info → Run anyway).
 - Mục mới "Gỡ cài đặt": double-click `uninstall`, giải thích 2 câu hỏi xác nhận.
+
+### 2.6 Một instance duy nhất
+
+- Mỗi user profile chỉ có một server/tray ViTranscript.
+- Runtime state ở `<data_dir>/server-state.json`, tạo theo exclusive-create và có
+  `instance_id`, PID, port, install dir, thời điểm start.
+- Double-click icon lần hai xác minh `/api/runtime`, mở browser tới port cũ rồi process
+  mới tự kết thúc; không sinh server/tray thứ hai.
+- State stale được phục hồi; cleanup chỉ xóa state có đúng `instance_id` của process.
+- Browser chỉ mở sau khi uvicorn báo đã sẵn sàng, tránh trang connection-refused.
 
 ## 3. Trải nghiệm đích
 
@@ -72,15 +92,18 @@ Chạy theo trình tự, có xác nhận trước khi xóa:
 1. **Mac:** sau `install.command`, có `ViTranscript.app` trong Applications; double-click → KHÔNG hiện Terminal, browser mở UI, có icon menu bar với mục Thoát.
 2. **Windows:** sau `install.bat`, có shortcut Desktop + Start Menu; double-click → KHÔNG hiện console, browser mở UI, có icon tray với mục Thoát.
 3. Đóng tab browser → app vẫn chạy, "Mở giao diện" từ tray mở lại đúng URL; "Thoát" → process kết thúc thật (kiểm tra bằng `ps`/Task Manager).
-4. **Uninstall:** chạy script gỡ → sau xác nhận, biến mất: data dir (kể cả model), app/shortcut, `.venv`. Chọn cả xác nhận 2 → uv + Python uv-managed cũng biến mất.
-5. Cài lại ngay sau khi gỡ → hoạt động bình thường (chứng minh gỡ không để rác chặn cài mới).
+4. Double-click icon lần hai → PID/port không đổi, browser mở lại instance cũ.
+5. **Uninstall:** chạy script gỡ → sau xác nhận, biến mất: data dir (kể cả model), app/shortcut, `.venv`. Chọn cả xác nhận 2 → chỉ uv + Python uv-managed đã xác minh biến mất.
+6. Cài lại ngay sau khi gỡ → hoạt động bình thường (chứng minh gỡ không để rác chặn cài mới).
 
 ## 6. Rủi ro
 
 | Rủi ro | Đối sách |
 |---|---|
 | pystray trên macOS đòi main thread, xung đột cách chạy uvicorn hiện tại | Ghi rõ trong plan: uvicorn xuống thread phụ khi có tray; smoke test Task 12 chạy lại |
-| `uv` không có trong PATH khi launcher chạy (GUI app không load shell profile trên Mac) | Launcher dùng đường dẫn tuyệt đối `$HOME/.local/bin/uv`, không dựa PATH |
+| GUI app không load shell profile/PATH | Daily launcher dùng đường dẫn tuyệt đối tới Python trong `.venv`, không gọi `uv` |
 | VBS wrapper bị antivirus nghi ngờ | Phương án dự phòng: shortcut trỏ thẳng `pythonw.exe` của `.venv` |
 | Người dùng xóa thư mục cài trước, mất script uninstall | README mục Troubleshooting đã in sẵn đường dẫn data dir để xóa tay |
 | macOS bản mới siết thêm app chưa ký | Cập nhật ảnh hướng dẫn theo OS; lối thoát ký số ghi ở mục 4 |
+| Double-click nhiều lần tạo nhiều server/tray | Exclusive runtime state + probe `/api/runtime`; lần sau chỉ mở URL cũ |
+| PID stale bị tái sử dụng | So khớp instance ID + endpoint trước khi kill; PID chết thì không kill |
