@@ -2,9 +2,14 @@
 
 import hashlib
 import json
+import logging
 import os
+import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 from . import config
 from .transcribe import Word
@@ -166,3 +171,177 @@ def _chunk_ranges(count: int) -> list[tuple[int, int]]:
         if end == count:
             break
     return ranges
+
+
+log = logging.getLogger("vitranscript")
+_TARGET_PUNCTUATION = ".,:?"
+_SPAN_RE = re.compile(r"\s+|[^\s]+")
+_WARNING = "Không thể chạy model dấu câu; transcript gốc vẫn được giữ nguyên."
+
+
+@dataclass
+class _Piece:
+    word_index: int
+    span_index: int
+    model_core: str
+    output_core: str
+    suffix: str
+
+
+def _parse_words(words: list[Word]) -> tuple[list[list[str]], list[_Piece]]:
+    layouts: list[list[str]] = []
+    pieces: list[_Piece] = []
+    for word_index, word in enumerate(words):
+        spans = _SPAN_RE.findall(word.text)
+        layouts.append(spans)
+        for span_index, span in enumerate(spans):
+            if span.isspace():
+                continue
+            core = span.rstrip(_TARGET_PUNCTUATION)
+            suffix = span[len(core):]
+            if not core:
+                continue
+            pieces.append(_Piece(
+                word_index=word_index,
+                span_index=span_index,
+                model_core=core.lower(),
+                output_core=core,
+                suffix=suffix,
+            ))
+    return layouts, pieces
+
+
+def _apply_safe_action(piece: _Piece, action: str) -> bool:
+    before = (piece.model_core, piece.output_core, piece.suffix)
+    if action in _CASE_ACTIONS:
+        piece.model_core = _apply_case(piece.model_core, action)
+        piece.output_core = _apply_case(piece.output_core, action)
+    elif action in _APPEND_ACTIONS and not piece.suffix:
+        piece.suffix = _APPEND_ACTIONS[action]
+    return before != (piece.model_core, piece.output_core, piece.suffix)
+
+
+def _rebuild_words(words: list[Word], layouts: list[list[str]], pieces: list[_Piece]) -> list[Word]:
+    rebuilt = [list(spans) for spans in layouts]
+    for piece in pieces:
+        rebuilt[piece.word_index][piece.span_index] = piece.output_core + piece.suffix
+    return [
+        Word(word.start, word.end, "".join(rebuilt[index]))
+        for index, word in enumerate(words)
+    ]
+
+
+def _signature(text: str) -> str:
+    return text.translate(str.maketrans("", "", _TARGET_PUNCTUATION)).casefold()
+
+
+def _invariants_hold(original: list[Word], restored: list[Word]) -> bool:
+    return len(original) == len(restored) and all(
+        before.start == after.start
+        and before.end == after.end
+        and _signature(before.text) == _signature(after.text)
+        for before, after in zip(original, restored, strict=True)
+    )
+
+
+def _encode_chunk(runtime: _Runtime, pieces: list[_Piece]):
+    tokens: list[str] = []
+    lexical_positions: list[int] = []
+    for piece in pieces:
+        lexical_positions.append(len(tokens))
+        tokens.append(piece.model_core)
+        tokens.extend(piece.suffix)
+    encoding = runtime.tokenizer.encode(tokens, is_pretokenized=True)
+    first_subword: dict[int, int] = {}
+    for index, word_id in enumerate(encoding.word_ids):
+        if word_id is not None and word_id not in first_subword:
+            first_subword[word_id] = index
+    offsets = [first_subword[position] for position in lexical_positions]
+    return {
+        "input_ids": np.asarray([encoding.ids], dtype=np.int64),
+        "attention_mask": np.asarray([encoding.attention_mask], dtype=np.int64),
+        "token_type_ids": np.asarray([encoding.type_ids], dtype=np.int64),
+        "input_offsets": np.asarray([offsets], dtype=np.int64),
+    }
+
+
+def _choose_overlapping(
+    count: int,
+    predictions: list[tuple[int, int, list[str]]],
+) -> list[str]:
+    selected = ["$KEEP"] * count
+    margins = [-1] * count
+    starts = [count] * count
+    for start, end, actions in predictions:
+        for local_index, action in enumerate(actions):
+            global_index = start + local_index
+            margin = min(local_index, end - start - local_index - 1)
+            if margin > margins[global_index] or (
+                margin == margins[global_index] and start < starts[global_index]
+            ):
+                selected[global_index] = action
+                margins[global_index] = margin
+                starts[global_index] = start
+    return selected
+
+
+def _predict_actions(
+    pieces: list[_Piece],
+    runtime: _Runtime,
+    progress_cb: Callable[[float], None] | None = None,
+) -> list[str]:
+    predictions = []
+    furthest = 0
+    for start, end in _chunk_ranges(len(pieces)):
+        feeds = _encode_chunk(runtime, pieces[start:end])
+        logits = runtime.session.run(["logits", "detect_logits"], feeds)[0]
+        label_ids = np.argmax(logits[0], axis=-1).tolist()
+        actions = [runtime.labels[index] for index in label_ids]
+        if len(actions) != end - start:
+            raise RuntimeError("Model dấu câu trả sai số word")
+        predictions.append((start, end, actions))
+        furthest = max(furthest, end)
+        if progress_cb:
+            progress_cb(furthest / len(pieces))
+    return _choose_overlapping(len(pieces), predictions)
+
+
+def restore(
+    words: list[Word],
+    *,
+    progress_cb: Callable[[float], None] | None = None,
+) -> PunctuationResult:
+    original = [Word(word.start, word.end, word.text) for word in words]
+    if not original:
+        return PunctuationResult([], False, None)
+    try:
+        layouts, pieces = _parse_words(original)
+        if not pieces:
+            return PunctuationResult(original, True, None)
+        runtime = _load_runtime()
+        last_progress = 0.0
+
+        def monotonic(value: float) -> None:
+            nonlocal last_progress
+            last_progress = max(last_progress, min(value * 0.9, 0.9))
+            if progress_cb:
+                progress_cb(last_progress)
+
+        for iteration in range(3):
+            actions = _predict_actions(
+                pieces, runtime, monotonic if iteration == 0 else None
+            )
+            changed = False
+            for piece, action in zip(pieces, actions, strict=True):
+                changed = _apply_safe_action(piece, action) or changed
+            if not changed:
+                break
+        restored = _rebuild_words(original, layouts, pieces)
+        if not _invariants_hold(original, restored):
+            raise RuntimeError("Invariant punctuation bị vi phạm")
+        if progress_cb:
+            progress_cb(1.0)
+        return PunctuationResult(restored, True, None)
+    except Exception:
+        log.exception("Không thể phục hồi dấu câu")
+        return PunctuationResult(original, False, _WARNING)

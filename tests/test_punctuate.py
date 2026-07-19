@@ -1,6 +1,8 @@
 import hashlib
 import json
 
+from app.transcribe import Word
+
 
 def test_punctuation_model_is_pinned():
     from app.config import PUNCTUATION_MODEL
@@ -122,3 +124,136 @@ def test_chunk_ranges_have_48_words_and_12_overlap():
 
     assert _chunk_ranges(100) == [(0, 48), (36, 84), (72, 100)]
     assert _chunk_ranges(2) == [(0, 2)]
+
+
+def _word_tuples(words):
+    return [(w.start, w.end, w.text) for w in words]
+
+
+def test_restore_keeps_count_timestamps_input_and_blocks_word_edits(monkeypatch):
+    from app import punctuate
+
+    original = [Word(0.0, 0.5, " xin"), Word(0.5, 1.0, " chào")]
+    before = _word_tuples(original)
+    calls = iter([
+        ["$TRANSFORM_CASE_CAPITAL", "$APPEND_."],
+        ["$KEEP", "$KEEP"],
+    ])
+    monkeypatch.setattr(punctuate, "_load_runtime", lambda: object())
+    monkeypatch.setattr(
+        punctuate, "_predict_actions", lambda pieces, runtime, progress_cb=None: next(calls)
+    )
+    result = punctuate.restore(original)
+    assert result.applied is True and result.warning is None
+    assert _word_tuples(result.words) == [(0.0, 0.5, " Xin"), (0.5, 1.0, " chào.")]
+    assert _word_tuples(original) == before
+
+
+def test_restore_preserves_existing_punctuation_and_multi_token_word(monkeypatch):
+    from app import punctuate
+
+    words = [Word(0.0, 2.0, " hà nội, việt nam")]
+    calls = iter([
+        ["$TRANSFORM_CASE_CAPITAL", "$APPEND_.", "$TRANSFORM_CASE_CAPITAL", "$KEEP"],
+        ["$KEEP", "$KEEP", "$KEEP", "$KEEP"],
+    ])
+    monkeypatch.setattr(punctuate, "_load_runtime", lambda: object())
+    monkeypatch.setattr(
+        punctuate, "_predict_actions", lambda pieces, runtime, progress_cb=None: next(calls)
+    )
+    result = punctuate.restore(words)
+    assert _word_tuples(result.words) == [(0.0, 2.0, " Hà nội, Việt nam")]
+
+
+def test_restore_falls_back_whole_input_on_any_error(monkeypatch):
+    from app import punctuate
+
+    words = [Word(0.0, 1.0, " nguyên bản")]
+    monkeypatch.setattr(
+        punctuate, "_load_runtime", lambda: (_ for _ in ()).throw(RuntimeError("secret path"))
+    )
+    result = punctuate.restore(words)
+    assert result.applied is False
+    assert _word_tuples(result.words) == _word_tuples(words)
+    assert result.warning == (
+        "Không thể chạy model dấu câu; transcript gốc vẫn được giữ nguyên."
+    )
+    assert "secret" not in result.warning
+
+
+def test_restore_falls_back_when_final_invariant_breaks(monkeypatch):
+    from app import punctuate
+
+    words = [Word(0.0, 1.0, " nguyên")]
+    monkeypatch.setattr(punctuate, "_load_runtime", lambda: object())
+    monkeypatch.setattr(
+        punctuate,
+        "_predict_actions",
+        lambda pieces, runtime, progress_cb=None: ["$KEEP"],
+    )
+    monkeypatch.setattr(
+        punctuate,
+        "_rebuild_words",
+        lambda words, layouts, pieces: [Word(0.0, 1.0, " từ-khác")],
+    )
+    result = punctuate.restore(words)
+    assert result.applied is False
+    assert _word_tuples(result.words) == _word_tuples(words)
+
+
+def test_restore_empty_does_not_load_runtime(monkeypatch):
+    from app import punctuate
+
+    monkeypatch.setattr(
+        punctuate, "_load_runtime", lambda: (_ for _ in ()).throw(AssertionError())
+    )
+    result = punctuate.restore([])
+    assert result == punctuate.PunctuationResult([], False, None)
+
+
+def test_overlap_prefers_prediction_furthest_from_chunk_edge():
+    from app.punctuate import _choose_overlapping
+
+    chosen = _choose_overlapping(60, [
+        (0, 48, ["$KEEP"] * 48),
+        (36, 60, ["$APPEND_."] * 24),
+    ])
+    assert chosen[36] == "$KEEP"
+    assert chosen[47] == "$APPEND_."
+
+
+def test_predict_actions_builds_word_offsets_for_onnx():
+    import numpy as np
+
+    from app import punctuate
+
+    class Encoding:
+        ids = [101, 11, 12, 102]
+        attention_mask = [1, 1, 1, 1]
+        type_ids = [0, 0, 0, 0]
+        word_ids = [None, 0, 1, None]
+
+    class Tokenizer:
+        def encode(self, tokens, is_pretokenized):
+            assert tokens == ["xin", "chào"]
+            assert is_pretokenized is True
+            return Encoding()
+
+    class Session:
+        def __init__(self):
+            self.feeds = None
+
+        def run(self, outputs, feeds):
+            self.feeds = feeds
+            logits = np.zeros((1, 2, 15), dtype=np.float32)
+            logits[0, 0, 3] = 10.0
+            logits[0, 1, 0] = 10.0
+            return [logits, np.zeros((1, 2, 4), dtype=np.float32)]
+
+    _, pieces = punctuate._parse_words([
+        Word(0.0, 0.5, " xin"), Word(0.5, 1.0, " chào")
+    ])
+    session = Session()
+    runtime = punctuate._Runtime(session, Tokenizer(), punctuate._EXPECTED_LABELS)
+    assert punctuate._predict_actions(pieces, runtime) == ["$APPEND_.", "$KEEP"]
+    assert session.feeds["input_offsets"].tolist() == [[1, 2]]
