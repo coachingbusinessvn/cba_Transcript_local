@@ -341,3 +341,85 @@ def test_pipeline_disabled_does_not_call_punctuation(monkeypatch, tmp_path):
         "backend": "vibert-capu-onnx-int8",
         "warning": None,
     }
+
+
+def test_meta_exposes_punctuation_model(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from app import config, server
+
+    monkeypatch.setattr(config, "punctuation_is_downloaded", lambda: True)
+    monkeypatch.setattr(config, "model_is_downloaded", lambda key: False)
+    monkeypatch.setattr(config, "load_settings", lambda: {"punctuate": True})
+    monkeypatch.setattr(config, "load_glossary_text", lambda: "")
+    payload = TestClient(server.app).get("/api/meta").json()["punctuation"]
+    assert payload == {"downloaded": True, "size": "~110 MB", "license": "CC-BY-SA-4.0"}
+
+
+def test_create_job_passes_and_persists_punctuate(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app import config, media, server
+
+    captured = {}
+
+    class FakeThread:
+        def __init__(self, target, args, daemon):
+            captured["opts"] = args[2]
+
+        def start(self):
+            return None
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(media, "duration_seconds", lambda path: 1.0)
+    monkeypatch.setattr(server.threading, "Thread", FakeThread)
+    server.JOBS.clear()
+    try:
+        response = TestClient(server.app).post(
+            "/api/jobs",
+            files={"file": ("hop.wav", b"RIFF", "audio/wav")},
+            data={"model": "phowhisper-small", "punctuate": "false"},
+        )
+        assert response.status_code == 200
+        assert captured["opts"]["punctuate"] is False
+        assert config.load_settings()["punctuate"] is False
+
+        server.JOBS.clear()
+        response = TestClient(server.app).post(
+            "/api/jobs",
+            files={"file": ("hop.wav", b"RIFF", "audio/wav")},
+            data={"model": "phowhisper-small"},
+        )
+        assert response.status_code == 200
+        assert captured["opts"]["punctuate"] is True
+    finally:
+        server.JOBS.clear()
+
+
+def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_path):
+    from app import pipeline, server
+
+    job_id = "punctwarn001"
+    server.JOBS[job_id] = {"status": "running", "note": "Đã tắt diarization."}
+    monkeypatch.setattr(server, "_save_job", lambda *args: None)
+    monkeypatch.setattr(
+        pipeline,
+        "run",
+        lambda *args, **kwargs: {
+            "sentences": [], "duration": 1.0, "punctuation": {
+                "warning": (
+                    "Không thể chạy model dấu câu; transcript gốc vẫn được giữ nguyên."
+                )
+            },
+        },
+    )
+    server._run_job(job_id, tmp_path / "in.wav", {
+        "model": "phowhisper-small", "language": "vi", "diarize": False,
+        "punctuate": True, "num_speakers": 0, "glossary": "",
+    })
+    assert server.JOBS[job_id]["status"] == "done"
+    assert server.JOBS[job_id]["note"].splitlines() == [
+        "Đã tắt diarization.",
+        "Không thể chạy model dấu câu; transcript gốc vẫn được giữ nguyên.",
+    ]
+    server.JOBS.pop(job_id, None)

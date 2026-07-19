@@ -269,6 +269,8 @@ def test_get_job_recovers_partial_from_disk(monkeypatch, tmp_path):
     assert job.get("partial") is True
     assert job["result"]["sentences"][0]["text"] == "Xin chào."
     assert job["result"]["model"] == "phowhisper-small"
+    assert job["result"]["punctuation"]["applied"] is False
+    assert "chưa được phục hồi dấu câu" in (job.get("note") or "")
 
 
 def test_get_job_dead_without_partial(monkeypatch, tmp_path):

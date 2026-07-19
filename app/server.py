@@ -126,6 +126,11 @@ def meta():
         ],
         "settings": config.load_settings(),
         "glossary": config.load_glossary_text(),
+        "punctuation": {
+            "downloaded": config.punctuation_is_downloaded(),
+            "size": "~110 MB",
+            "license": config.PUNCTUATION_MODEL["license"],
+        },
     }
 
 
@@ -153,6 +158,7 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
             input_path.parent,
             opts["model"],
             language=opts["language"],
+            enable_punctuation=opts["punctuate"],
             enable_diarization=opts["diarize"],
             num_speakers=opts["num_speakers"],
             glossary_text=opts["glossary"],
@@ -160,6 +166,10 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
         )
         with _JOBS_LOCK:
             job = JOBS[job_id]
+            warning = (result.get("punctuation") or {}).get("warning")
+            if warning:
+                existing = str(job.get("note") or "").strip()
+                job["note"] = "\n".join(part for part in (existing, warning) if part)
             job.update(status="done", result=result, percent=100, message="Hoàn tất!")
             snap = dict(job)
         _save_job(job_id, snap)
@@ -185,6 +195,7 @@ async def create_job(
     model: Annotated[str, Form()],
     language: Annotated[str, Form()] = "vi",
     diarize: Annotated[bool, Form()] = True,
+    punctuate: Annotated[bool, Form()] = True,
     num_speakers: Annotated[int, Form()] = 0,
     glossary: Annotated[str, Form()] = "",
 ):
@@ -202,6 +213,7 @@ async def create_job(
         "message": "Đang chuẩn bị…",
         "filename": name.name,
         "model": model,
+        "punctuate": punctuate,
     }
     # Đặt chỗ nguyên tử: kiểm tra "đang chạy" và ghi job trong cùng một lần giữ lock,
     # tránh hai request cùng lọt qua kiểm tra rồi cùng khởi chạy.
@@ -232,7 +244,9 @@ async def create_job(
                 JOBS[job_id]["note"] = note
             _save_job(job_id, JOBS[job_id])
 
-        config.save_settings({"model": model, "language": language})
+        config.save_settings({
+            "model": model, "language": language, "punctuate": punctuate,
+        })
         config.save_glossary_text(glossary)
     except Exception:
         with _JOBS_LOCK:
@@ -243,6 +257,7 @@ async def create_job(
         "model": model,
         "language": language,
         "diarize": diarize,
+        "punctuate": punctuate,
         "num_speakers": num_speakers,
         "glossary": glossary,
     }
@@ -267,13 +282,24 @@ def _get_job(job_id: str) -> dict:
             if words:
                 sentences = segment.build_sentences(words)
                 disk["partial"] = True
+                punct_warning = "Bản khôi phục chưa được phục hồi dấu câu."
                 disk["result"] = {
                     "sentences": [asdict(s) for s in sentences],
                     "duration": words[-1].end,
                     "num_speakers": 0,
                     "extracted_audio": None,
                     "model": disk.get("model", "?"),
+                    "punctuation": {
+                        "requested": bool(disk.get("punctuate", True)),
+                        "applied": False,
+                        "backend": "vibert-capu-onnx-int8",
+                        "warning": punct_warning,
+                    },
                 }
+                existing_note = str(disk.get("note") or "").strip()
+                disk["note"] = "\n".join(
+                    part for part in (existing_note, punct_warning) if part
+                )
                 disk["message"] = (
                     "Server đã dừng giữa chừng — nhưng phần transcript làm xong "
                     f"({len(sentences)} câu, tới phút {words[-1].end / 60:.0f}) "
