@@ -90,3 +90,35 @@ def test_ensure_model_dir_rejects_wrong_hash(monkeypatch, tmp_path):
     with pytest.raises(RuntimeError, match="SHA-256"):
         punctuate._ensure_model_dir()
     assert not config.punctuation_manifest_path().exists()
+
+
+def test_runtime_is_cached_once(monkeypatch, tmp_path):
+    from app import punctuate
+
+    calls = []
+    monkeypatch.setattr(punctuate, "_RUNTIME_CACHE", None)
+    monkeypatch.setattr(punctuate, "_ensure_model_dir", lambda: tmp_path)
+    monkeypatch.setattr(
+        punctuate, "_create_runtime", lambda root: calls.append(root) or object()
+    )
+    assert punctuate._load_runtime() is punctuate._load_runtime()
+    assert calls == [tmp_path]
+
+
+def test_case_actions_are_exact_and_unsupported_actions_keep_text():
+    from app.punctuate import _apply_case
+
+    assert _apply_case("hà", "$TRANSFORM_CASE_CAPITAL") == "Hà"
+    assert _apply_case("who", "$TRANSFORM_CASE_UPPER") == "WHO"
+    assert _apply_case("VN", "$TRANSFORM_CASE_LOWER") == "vn"
+    assert _apply_case("iphone", "$TRANSFORM_CASE_CAPITAL_1") == "iPhone"
+    assert _apply_case("iphone", "$TRANSFORM_CASE_UPPER_-1") == "IPHONe"
+    assert _apply_case("nguyên", "$TRANSFORM_VERB_VB_VBN") == "nguyên"
+    assert _apply_case("nguyên", "$MERGE_SPACE") == "nguyên"
+
+
+def test_chunk_ranges_have_48_words_and_12_overlap():
+    from app.punctuate import _chunk_ranges
+
+    assert _chunk_ranges(100) == [(0, 48), (36, 84), (72, 100)]
+    assert _chunk_ranges(2) == [(0, 2)]
