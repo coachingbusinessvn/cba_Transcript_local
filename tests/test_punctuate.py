@@ -433,4 +433,5 @@ def test_ui_contains_punctuation_checkbox_and_form_contract():
     assert "Tự chèn dấu câu (khuyên dùng cho PhoWhisper)" in html
     assert 'fd.append("punctuate", punctuateEl.checked ? "true" : "false")' in html
     assert "settings.punctuate" in html
-    assert "data.punctuation.downloaded" in html
+    assert "data.punctuation" in html
+    assert "punctuationMeta.downloaded" in html
