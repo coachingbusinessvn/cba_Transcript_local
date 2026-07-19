@@ -1,6 +1,8 @@
 import hashlib
 import json
 
+import pytest
+
 from app.transcribe import Word
 
 
@@ -257,3 +259,24 @@ def test_predict_actions_builds_word_offsets_for_onnx():
     runtime = punctuate._Runtime(session, Tokenizer(), punctuate._EXPECTED_LABELS)
     assert punctuate._predict_actions(pieces, runtime) == ["$APPEND_.", "$KEEP"]
     assert session.feeds["input_offsets"].tolist() == [[1, 2]]
+
+
+@pytest.mark.model
+def test_real_punctuation_model_contract():
+    import os
+
+    if os.environ.get("VITRANSCRIPT_MODEL_TEST") != "1":
+        pytest.skip("set VITRANSCRIPT_MODEL_TEST=1 to run the pinned artifact")
+    from app import config, punctuate
+
+    words = [
+        Word(float(i), float(i + 1), " " + token)
+        for i, token in enumerate("hà nội là thủ đô việt nam tôi yêu nó".split())
+    ]
+    result = punctuate.restore(words)
+    text = "".join(word.text for word in result.words).strip()
+    assert result.applied is True, result.warning
+    assert config.punctuation_is_downloaded() is True
+    assert any(mark in text for mark in ".,:?")
+    assert any(char.isupper() for char in text)
+    assert punctuate._invariants_hold(words, result.words)
