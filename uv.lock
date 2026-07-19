@@ -1464,6 +1464,8 @@ dependencies = [
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "onnxruntime", version = "1.24.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "onnxruntime", version = "1.27.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "openpyxl" },
     { name = "python-docx" },
     { name = "python-multipart" },
@@ -1471,6 +1473,7 @@ dependencies = [
     { name = "sherpa-onnx" },
     { name = "sherpa-onnx-core" },
     { name = "static-ffmpeg" },
+    { name = "tokenizers" },
     { name = "uvicorn" },
 ]
 
@@ -1487,6 +1490,7 @@ requires-dist = [
     { name = "faster-whisper", specifier = ">=1.1.0" },
     { name = "huggingface-hub", specifier = ">=0.23" },
     { name = "numpy", specifier = ">=1.26" },
+    { name = "onnxruntime", specifier = ">=1.20,<2" },
     { name = "openpyxl", specifier = ">=3.1.2" },
     { name = "python-docx", specifier = ">=1.1.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
@@ -1494,6 +1498,7 @@ requires-dist = [
     { name = "sherpa-onnx", specifier = ">=1.10.30" },
     { name = "sherpa-onnx-core", specifier = ">=1.10.30" },
     { name = "static-ffmpeg", specifier = ">=2.7" },
+    { name = "tokenizers", specifier = ">=0.20,<1" },
     { name = "uvicorn", specifier = ">=0.29" },
 ]
 

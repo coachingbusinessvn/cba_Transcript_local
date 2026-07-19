@@ -36,10 +36,20 @@ MODEL_REGISTRY = {
     },
 }
 
+PUNCTUATION_MODEL = {
+    "repo_id": "welcomyou/vibert-capu-onnx",
+    "revision": "a7754d037f4a9e29f7f3224f27acb60149eab874",
+    "filename": "vibert-capu.int8.onnx",
+    "size": 115_707_731,
+    "sha256": "67278b23502bbd744538e2bd9a6748b61cce171cfba6c671c2e2a46f892166fa",
+    "license": "CC-BY-SA-4.0",
+}
+
 DEFAULT_SETTINGS = {
     "model": "phowhisper-small",
     "language": "vi",
     "beam_size": 5,
+    "punctuate": True,
 }
 
 
@@ -60,6 +70,30 @@ def models_dir() -> Path:
     d = data_dir() / "models"
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def punctuation_dir() -> Path:
+    d = data_dir() / "punctuation"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def punctuation_manifest_path() -> Path:
+    return punctuation_dir() / "manifest.json"
+
+
+def punctuation_is_downloaded() -> bool:
+    model_path = punctuation_dir() / PUNCTUATION_MODEL["filename"]
+    try:
+        manifest = json.loads(punctuation_manifest_path().read_text(encoding="utf-8"))
+        return (
+            model_path.is_file()
+            and model_path.stat().st_size == PUNCTUATION_MODEL["size"]
+            and manifest.get("revision") == PUNCTUATION_MODEL["revision"]
+            and manifest.get("sha256") == PUNCTUATION_MODEL["sha256"]
+        )
+    except (OSError, ValueError):
+        return False
 
 
 def jobs_dir() -> Path:
@@ -85,7 +119,10 @@ def load_settings() -> dict:
 
 def save_settings(new_values: dict) -> dict:
     s = load_settings()
-    s.update({k: v for k, v in new_values.items() if k in DEFAULT_SETTINGS})
+    updates = {k: v for k, v in new_values.items() if k in DEFAULT_SETTINGS}
+    if "punctuate" in updates and not isinstance(updates["punctuate"], bool):
+        updates.pop("punctuate")
+    s.update(updates)
     _settings_path().write_text(
         json.dumps(s, ensure_ascii=False, indent=2), encoding="utf-8"
     )

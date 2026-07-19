@@ -17,6 +17,8 @@ dependencies = [
     "static-ffmpeg>=2.7",
     "huggingface-hub>=0.23",
     "numpy>=1.26",
+    "onnxruntime>=1.20,<2",
+    "tokenizers>=0.20,<1",
 ]
 
 [dependency-groups]
@@ -31,3 +33,9 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+markers = [
+    "model: downloads/runs pinned model artifacts; excluded from the default suite",
+]
+addopts = "-m 'not model'"
