@@ -280,3 +280,64 @@ def test_real_punctuation_model_contract():
     assert any(mark in text for mark in ".,:?")
     assert any(char.isupper() for char in text)
     assert punctuate._invariants_hold(words, result.words)
+
+
+def test_pipeline_punctuates_before_sentence_split(monkeypatch, tmp_path):
+    from app import config, media, pipeline, punctuate, transcribe
+
+    monkeypatch.setattr(media, "to_wav16k", lambda source, out: out)
+    monkeypatch.setattr(media, "wav_duration_seconds", lambda path: 2.0)
+    monkeypatch.setattr(config, "model_is_downloaded", lambda key: True)
+    monkeypatch.setattr(config, "punctuation_is_downloaded", lambda: True)
+    monkeypatch.setattr(config, "load_settings", lambda: {"beam_size": 5})
+    monkeypatch.setattr(transcribe, "load_model", lambda key: object())
+    monkeypatch.setattr(
+        transcribe,
+        "transcribe",
+        lambda *args, **kwargs: [
+            Word(0.0, 1.0, " xin"),
+            Word(1.0, 2.0, " chào"),
+            Word(2.0, 3.0, " bạn"),
+        ],
+    )
+    monkeypatch.setattr(
+        punctuate,
+        "restore",
+        lambda words, progress_cb=None: punctuate.PunctuationResult(
+            [Word(0.0, 1.0, " Xin."), Word(1.0, 2.0, " chào"), Word(2.0, 3.0, " bạn.")],
+            True,
+            None,
+        ),
+    )
+    result = pipeline.run(
+        tmp_path / "in.wav", tmp_path, "phowhisper-small",
+        enable_diarization=False, enable_punctuation=True,
+    )
+    assert [row["text"] for row in result["sentences"]] == ["Xin.", "chào bạn."]
+    assert result["punctuation"]["applied"] is True
+
+
+def test_pipeline_disabled_does_not_call_punctuation(monkeypatch, tmp_path):
+    from app import config, media, pipeline, punctuate, transcribe
+
+    monkeypatch.setattr(media, "to_wav16k", lambda source, out: out)
+    monkeypatch.setattr(media, "wav_duration_seconds", lambda path: 1.0)
+    monkeypatch.setattr(config, "model_is_downloaded", lambda key: True)
+    monkeypatch.setattr(config, "load_settings", lambda: {"beam_size": 5})
+    monkeypatch.setattr(transcribe, "load_model", lambda key: object())
+    monkeypatch.setattr(
+        transcribe, "transcribe", lambda *args, **kwargs: [Word(0.0, 1.0, " nguyên")]
+    )
+    monkeypatch.setattr(
+        punctuate, "restore", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError())
+    )
+    result = pipeline.run(
+        tmp_path / "in.wav", tmp_path, "phowhisper-small",
+        enable_diarization=False, enable_punctuation=False,
+    )
+    assert result["punctuation"] == {
+        "requested": False,
+        "applied": False,
+        "backend": "vibert-capu-onnx-int8",
+        "warning": None,
+    }

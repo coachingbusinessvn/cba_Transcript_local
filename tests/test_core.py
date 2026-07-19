@@ -227,7 +227,7 @@ def test_pipeline_writes_partial_checkpoint(monkeypatch, tmp_path):
 
     monkeypatch.setattr(tr, "transcribe", fake_transcribe)
     result = pipeline.run(tmp_path / "in.wav", tmp_path, "phowhisper-small",
-                          enable_diarization=False)
+                          enable_diarization=False, enable_punctuation=False)
     assert (tmp_path / "partial.jsonl").exists()
     assert len(result["sentences"]) == 1
 

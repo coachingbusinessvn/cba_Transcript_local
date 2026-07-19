@@ -1,9 +1,9 @@
-"""Ghép toàn bộ pipeline: convert → transcribe → diarize → sửa glossary → tách câu."""
+"""Ghép toàn bộ pipeline: convert → transcribe → punctuate → diarize → glossary → tách câu."""
 from collections.abc import Callable
 from dataclasses import asdict
 from pathlib import Path
 
-from . import checkpoint, config, diarize, glossary, media, segment, transcribe
+from . import checkpoint, config, diarize, glossary, media, punctuate, segment, transcribe
 
 ProgressCb = Callable[[str, float, str], None]  # (stage, percent 0-100, message)
 
@@ -13,6 +13,7 @@ def run(
     work_dir: Path,
     model_key: str,
     language: str = "vi",
+    enable_punctuation: bool = True,
     enable_diarization: bool = True,
     num_speakers: int = 0,
     glossary_text: str = "",
@@ -53,10 +54,35 @@ def run(
         beam_size=int(settings.get("beam_size", 5)),
         hotwords=gloss.hotwords or None,
         progress_cb=lambda f: report(
-            "transcribe", 12 + f * 58, f"Đang chuyển giọng nói thành văn bản… {int(f * 100)}%"
+            "transcribe", 12 + f * 54, f"Đang chuyển giọng nói thành văn bản… {int(f * 100)}%"
         ),
         segment_cb=lambda ws: checkpoint.append_words(partial_path, ws),
     )
+
+    # 3b. Phục hồi dấu câu (best-effort; trước tách câu)
+    punctuation_meta = {
+        "requested": enable_punctuation,
+        "applied": False,
+        "backend": "vibert-capu-onnx-int8",
+        "warning": None,
+    }
+    if enable_punctuation:
+        downloaded = config.punctuation_is_downloaded()
+        report(
+            "punctuate",
+            66,
+            "Đang phục hồi dấu câu…" if downloaded
+            else "Lần đầu dùng dấu câu: đang tải model (~110 MB)…",
+        )
+        restored = punctuate.restore(
+            words,
+            progress_cb=lambda f: report(
+                "punctuate", 66 + f * 6, f"Đang phục hồi dấu câu… {int(f * 100)}%"
+            ),
+        )
+        words = restored.words
+        punctuation_meta["applied"] = restored.applied
+        punctuation_meta["warning"] = restored.warning
 
     # 4. Diarization
     turns = []
@@ -85,4 +111,5 @@ def run(
         "num_speakers": n_speakers,
         "extracted_audio": str(extracted_audio) if extracted_audio else None,
         "model": model_key,
+        "punctuation": punctuation_meta,
     }
