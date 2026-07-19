@@ -29,6 +29,7 @@
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag `v0.1.0` | 🔵 | Nghiệm thu một phần — chưa gắn tag `v0.1.0` (thiếu máy sạch / file dài / WER) |
+| 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
 

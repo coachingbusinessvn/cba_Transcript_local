@@ -48,3 +48,13 @@ Lần đầu chạy model sẽ tải về (cần mạng). Sau đó có thể ch�
 | **&gt; 30%** | Xem lại model hoặc chất lượng ghi âm |
 
 Ghi số liệu vào bảng WER trong [`docs/03-tasks.md`](../docs/03-tasks.md) khi so sánh model.
+
+## Đánh giá phục hồi dấu câu
+
+Tạo `punctuation_words.json` từ 3–5 phút ASR thô dưới dạng list object
+`{"start": 0.0, "end": 0.5, "text": " xin"}`. Tạo
+`punctuation_reference.txt` bằng đúng các lexical word đó, chỉ thêm viết hoa và dấu
+`. , : ?`. Hai file là dữ liệu riêng tư, không commit.
+
+Chạy `uv run python scripts/eval_punctuation.py`. Gate đạt khi boundary F1 tăng ít
+nhất 10 điểm phần trăm và lexical WER so với ASR thô bằng 0.

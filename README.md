@@ -46,6 +46,20 @@ Lần đầu dùng model cần mạng để tải model về máy; sau đó có 
 
 ---
 
+## Phục hồi dấu câu
+
+Tùy chọn **Tự chèn dấu câu** được bật mặc định và đặc biệt hữu ích với PhoWhisper.
+Lần đầu dùng, app tải thêm model ViBERT-CAPU ONNX INT8 khoảng 110 MB; các lần sau
+chạy offline. Bước này chỉ đổi viết hoa và thêm `. , : ?`, không đổi chính tả hoặc
+timestamp.
+
+Nếu model dấu câu không tải/chạy được, job vẫn hoàn tất bằng transcript gốc và hiện
+cảnh báo vàng. Có thể tắt tùy chọn để dùng đúng cách tách câu cũ.
+
+Nguồn và license model: [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+---
+
 ## Từ điển sửa lỗi (Glossary)
 
 Trong ô glossary (mỗi dòng một mục; dòng bắt đầu bằng `#` là ghi chú):
@@ -149,6 +163,8 @@ uv run pytest                    # unit tests
 uv run ruff check .              # lint
 uv run python scripts/smoke_e2e.py   # smoke E2E (macOS, cần `say` + ffmpeg)
 uv run python scripts/eval_wer.py [model_key]  # WER trên eval/sample.*
+uv run python scripts/smoke_punctuation_model.py  # smoke model pin, lần đầu cần mạng
+uv run python scripts/eval_punctuation.py         # boundary F1, cần fixture riêng tư
 ```
 
 Tài liệu kỹ thuật: [`docs/01-bai-toan.md`](docs/01-bai-toan.md), [`docs/02-plan.md`](docs/02-plan.md), [`docs/03-tasks.md`](docs/03-tasks.md).
