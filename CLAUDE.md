@@ -69,11 +69,11 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
 
 **5 commit gần nhất:**
 
+- `6dbfada docs: fix AGENTS.md va update_context.py`
 - `b3c69b1 docs: sua CLAUDE.md (rule section bi hook lam lon)`
 - `bd84367 docs: update CLAUDE.md + tao AGENTS.md day du voi rule tu cap nhat`
 - `db4214b claude`
 - `4b13de5 docs: thiet ke vo desktop v1.5 (script uv + app bundle + tray + uninstall sach)`
-- `efded9e docs: plan review P0/P1 patches + worktrees gitignore`
 <!-- auto-update: end -->
 
 
@@ -137,11 +137,11 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
 
 **5 commit gần nhất:**
 
+- `6dbfada docs: fix AGENTS.md va update_context.py`
 - `b3c69b1 docs: sua CLAUDE.md (rule section bi hook lam lon)`
 - `bd84367 docs: update CLAUDE.md + tao AGENTS.md day du voi rule tu cap nhat`
 - `db4214b claude`
 - `4b13de5 docs: thiet ke vo desktop v1.5 (script uv + app bundle + tray + uninstall sach)`
-- `efded9e docs: plan review P0/P1 patches + worktrees gitignore`
 <!-- auto-update: end -->` trong `CLAUDE.md`
 2. Sửa block `<!-- status-block: start --> … <!-- status-block: end -->` trong `AGENTS.md`
 3. Commit cả 2 file cùng với code thay đổi trong **cùng 1 commit**
