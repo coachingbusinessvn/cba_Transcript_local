@@ -440,3 +440,62 @@ def test_failed_job_is_also_evicted_from_memory(monkeypatch, tmp_path):
     # Quan trọng: job lỗi cũng phải rời RAM, nếu không nó chặn mọi job sau bằng 409
     assert "j2" not in server.JOBS
     assert server._get_job("j2")["status"] == "error"
+
+
+def test_sha256_file_matches_hashlib(tmp_path):
+    import hashlib
+
+    from app import config
+
+    p = tmp_path / "x.bin"
+    p.write_bytes(b"vitranscript" * 1000)
+    assert config.sha256_file(p) == hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def test_download_rejects_wrong_hash(tmp_path, monkeypatch):
+    import io
+
+    from app import diarize
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(
+        diarize.urllib.request, "urlopen", lambda url, timeout: FakeResponse(b"noi dung sai")
+    )
+    dest = tmp_path / "model.onnx"
+
+    with pytest.raises(RuntimeError, match="SHA-256"):
+        diarize._download("https://example.invalid/m.onnx", dest, "0" * 64)
+
+    assert not dest.exists()                              # không để lại file hỏng
+    assert not dest.with_suffix(".onnx.part").exists()    # dọn cả file tạm
+
+
+def test_download_accepts_matching_hash(tmp_path, monkeypatch):
+    import hashlib
+    import io
+
+    from app import diarize
+
+    payload = b"noi dung dung"
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(
+        diarize.urllib.request, "urlopen", lambda url, timeout: FakeResponse(payload)
+    )
+    dest = tmp_path / "model.onnx"
+
+    diarize._download("https://example.invalid/m.onnx", dest, hashlib.sha256(payload).hexdigest())
+
+    assert dest.read_bytes() == payload

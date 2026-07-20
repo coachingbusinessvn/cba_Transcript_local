@@ -1,6 +1,5 @@
 """Phục hồi dấu câu tiếng Việt bằng ViBERT-CAPU ONNX, best-effort."""
 
-import hashlib
 import json
 import logging
 import os
@@ -36,14 +35,6 @@ def _snapshot_download(**kwargs):
     return snapshot_download(**kwargs)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        while chunk := f.read(1 << 20):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _ensure_model_dir() -> Path:
     root = config.punctuation_dir()
     if config.punctuation_is_downloaded():
@@ -58,7 +49,7 @@ def _ensure_model_dir() -> Path:
     model_path = root / config.PUNCTUATION_MODEL["filename"]
     if model_path.stat().st_size != config.PUNCTUATION_MODEL["size"]:
         raise RuntimeError("Model dấu câu sai kích thước")
-    actual_hash = _sha256(model_path)
+    actual_hash = config.sha256_file(model_path)
     if actual_hash != config.PUNCTUATION_MODEL["sha256"]:
         raise RuntimeError("Model dấu câu sai SHA-256")
     for relative in _REQUIRED_FILES:

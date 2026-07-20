@@ -38,9 +38,25 @@ class SpeakerTurn:
     speaker: int  # 0-based
 
 
-def _download(url: str, dest: Path) -> None:
+# Hash chốt bằng cách tải một lần rồi ghi lại (trust-on-first-use): bắt được
+# tải dở, proxy chèn nội dung, và việc upstream lặng lẽ thay file.
+_SEG_SHA256 = "24615ee884c897d9d2ba09bb4d30da6bb1b15e685065962db5b02e76e4996488"
+_EMB_SHA256 = "1a331345f04805badbb495c775a6ddffcdd1a732567d5ec8b3d5749e3c7a5e4b"
+_DOWNLOAD_TIMEOUT = 300  # giây, cho mỗi thao tác đọc socket
+
+
+def _download(url: str, dest: Path, sha256: str) -> None:
     tmp = dest.with_suffix(dest.suffix + ".part")
-    urllib.request.urlretrieve(url, tmp)
+    with urllib.request.urlopen(url, timeout=_DOWNLOAD_TIMEOUT) as resp, tmp.open("wb") as f:
+        while chunk := resp.read(1 << 20):
+            f.write(chunk)
+    actual = config.sha256_file(tmp)
+    if actual != sha256:
+        tmp.unlink(missing_ok=True)
+        raise RuntimeError(
+            f"Model diarization tải về sai SHA-256 (nhận {actual[:12]}…). "
+            "Hãy thử lại; nếu vẫn lỗi thì nguồn tải đã thay đổi."
+        )
     tmp.rename(dest)
 
 
@@ -52,14 +68,14 @@ def ensure_models() -> tuple[Path, Path]:
     seg_model = d / "sherpa-onnx-pyannote-segmentation-3-0" / "model.onnx"
     if not seg_model.exists():
         archive = d / "segmentation.tar.bz2"
-        _download(_SEG_URL, archive)
+        _download(_SEG_URL, archive, _SEG_SHA256)
         with tarfile.open(archive, "r:bz2") as tf:
             tf.extractall(d, filter="data")  # chặn path traversal + hết deprecation 3.14
         archive.unlink()
 
     emb_model = d / "3dspeaker_eres2net_base_16k.onnx"
     if not emb_model.exists():
-        _download(_EMB_URL, emb_model)
+        _download(_EMB_URL, emb_model, _EMB_SHA256)
 
     return seg_model, emb_model
 
