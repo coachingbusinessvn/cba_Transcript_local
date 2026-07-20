@@ -1,9 +1,14 @@
+import struct
 import tempfile
+import wave
 from pathlib import Path
+
+import pytest
 
 from app.diarize import SpeakerTurn, merge_minor_speakers
 from app.export import to_docx, to_srt, to_txt, to_xlsx
 from app.glossary import correct, parse
+from app.media import read_wav16k_float32
 from app.segment import Sentence, assign_speakers, build_sentences
 from app.transcribe import Word
 
@@ -355,3 +360,22 @@ def test_export_srt_with_speaker_override(monkeypatch, tmp_path):
         assert "Người nói 1: Chào bạn." in srt  # dòng 2 đã đổi từ speaker 1 → 0
     finally:
         server.JOBS.pop(job_id, None)
+
+
+@pytest.mark.timeout(10)
+def test_read_wav16k_float32_handles_truncated_file(tmp_path):
+    # Mô phỏng ffmpeg bị kill giữa chừng: header khai 10 giây, dữ liệu thực chỉ 1 giây.
+    p = tmp_path / "trunc.wav"
+    with wave.open(str(p), "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x01" * 16000)
+    raw = bytearray(p.read_bytes())
+    i = raw.find(b"data")
+    struct.pack_into("<I", raw, i + 4, 16000 * 2 * 10)
+    p.write_bytes(bytes(raw))
+
+    samples = read_wav16k_float32(p)
+
+    assert len(samples) == 16000  # trả về đúng phần đọc được, không treo

@@ -106,6 +106,11 @@ def read_wav16k_float32(wav_path: Path, _chunk_frames: int = 960_000):
         while pos < n:
             data = w.readframes(min(_chunk_frames, n - pos))
             block = np.frombuffer(data, dtype=np.int16)
+            if len(block) == 0:
+                # Header khai nhiều frame hơn dữ liệu thực (file bị cắt dở).
+                # Không thoát ở đây thì pos đứng yên và vòng lặp chạy mãi.
+                out = out[:pos]
+                break
             out[pos : pos + len(block)] = block
             pos += len(block)
     out /= 32768.0  # in-place, không tạo mảng mới

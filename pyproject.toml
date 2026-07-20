@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.4", "jiwer>=3.0"]
+dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.4", "jiwer>=3.0"]
 
 [tool.uv]
 package = false
