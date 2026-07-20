@@ -508,3 +508,25 @@ def test_clean_names_drops_non_string_values():
     assert _clean_names(None) == {}
     assert _clean_names("khong phai dict") == {}
     assert _clean_names({0: "Huy"}) == {"0": "Huy"}  # key so -> chuoi
+
+
+def test_load_model_frees_old_model_before_building_new(monkeypatch):
+    import app.transcribe as tr
+
+    seen_during_construct = {}
+
+    class FakeWhisperModel:
+        def __init__(self, source, **kwargs):
+            # Model cu phai da bi giai phong TRUOC khi model moi cap phat RAM
+            seen_during_construct["cache"] = dict(tr._MODEL_CACHE)
+
+    fake_module = type("M", (), {"WhisperModel": FakeWhisperModel})
+    monkeypatch.setitem(__import__("sys").modules, "faster_whisper", fake_module)
+
+    tr._MODEL_CACHE.clear()
+    tr._MODEL_CACHE["phowhisper-large"] = object()
+    tr.load_model("phowhisper-small")
+
+    assert seen_during_construct["cache"] == {}
+    assert list(tr._MODEL_CACHE) == ["phowhisper-small"]
+    tr._MODEL_CACHE.clear()
