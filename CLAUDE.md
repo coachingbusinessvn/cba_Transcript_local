@@ -27,15 +27,16 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
 | Cài đặt | `uv` (tự tải Python 3.12) | |
 | Export | python-docx, openpyxl | |
 | Sửa từ khóa | rapidfuzz (fuzzy) + hotwords faster-whisper | |
+| Phục hồi dấu câu | ViBERT-CAPU ONNX (`app/punctuate.py`) | Tùy chọn, lazy load |
 
 <!-- auto-update: start -->
 ## Trạng thái hiện tại
 
 > _Phần này tự động cập nhật khi commit vào main._
 
-**Tiến độ:** 17/20 task xong 🟢 | 2 đang chạy 🔵 | 1 chưa làm ⚪
+**Tiến độ:** 17/21 task xong 🟢 | 2 đang chạy 🔵 | 2 chưa làm ⚪
 
-**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `segment.py`, `server.py`, `transcribe.py`
+**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
 
 **Bảng tasks (xem chi tiết: [docs/03-tasks.md](docs/03-tasks.md)):**
 
@@ -58,18 +59,22 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag `v0.1.0` | 🔵 | Nghiệm thu một phần — chưa gắn tag `v0.1.0` (thiếu máy sạch / file dài / WER) |
+| 15 | Phục hồi dấu câu ViBERT-CAPU ONNX (`app/punctuate.py`) | 🔵 | Module + UI + tests xong; chưa nghiệm thu đủ release gates |
 
 **Rủi ro / việc treo đang mở:**
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
+- [ ] Task 15: nghiệm thu PR-13/PR-14 (punctuation release gates) chưa đủ
 
-**5 commit gần nhất:**
+**5 commit gần nhất (trong worktree):**
 
-- `4b13de5 docs: thiet ke vo desktop v1.5 (script uv + app bundle + tray + uninstall sach)`
-- `efded9e docs: plan review P0/P1 patches + worktrees gitignore`
-- `c8c46cc docs: bai toan, plan, tasks — trang thai chua thuc thi`
+- `7660b72 docs: verify punctuation restoration release gates`
+- `2594ed3 test: align UI contract with punctuationMeta helper`
+- `4f1ca45 feat: add punctuation UI option`
+- `205103e feat: expose punctuation job option`
+- `9022e6c feat: add punctuation pipeline stage`
 <!-- auto-update: end -->
 
 
@@ -82,28 +87,39 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
 - Text UI: tiếng Việt; `.bat` viết không dấu (tránh lỗi codepage Windows)
 - URL diarization: `"speaker-recongition-models"` — lỗi chính tả là CỐ Ý (upstream), không sửa
 
+## RULE: Luôn cập nhật CLAUDE.md và AGENTS.md
+
+**Bắt buộc cập nhật cả hai file mỗi khi có thay đổi sau:**
+
+- Trạng thái task thay đổi (⚪ → 🔵 → 🟢)
+- Thêm/xóa module, script, hoặc test file
+- Thêm constraint hoặc quyết định kỹ thuật mới
+- 5 commit gần nhất thay đổi (sau mỗi commit mới)
+- Rủi ro/blocker mới xuất hiện hoặc được giải quyết
+
+**Cách cập nhật:**
+1. Sửa block `<!-- auto-update: start --> … <!-- auto-update: end -->` trong `CLAUDE.md`
+2. Sửa block `<!-- status-block: start --> … <!-- status-block: end -->` trong `AGENTS.md`
+3. Commit cả 2 file cùng với code thay đổi trong **cùng 1 commit**
+
+> `CLAUDE.md` dùng cho Claude Code. `AGENTS.md` dùng cho AI khác (Codex, GPT, Gemini…). Nội dung trạng thái phải đồng bộ.
+
 ## Quy trình commit
 
-Mỗi task: code → `uv run ruff check .` sạch → verify → `git commit`.
+Mỗi task: code → `uv run ruff check .` sạch → verify → cập nhật CLAUDE.md + AGENTS.md → `git commit`.
 Commit message kết thúc bằng: `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
-
-## Auto-update CLAUDE.md / AGENTS.md
-
-Hai file này tự động cập nhật khi có commit vào `main` qua 2 lớp:
-1. **Claude Code hook** (`.claude/settings.json`) — bắt `git commit` trong session
-2. **Git hook** — cài một lần bằng: `bash scripts/install_hook.sh`
-
-Chạy thủ công: `python3 scripts/update_context.py`
 
 ## Lệnh hay dùng (chạy từ `.worktrees/vitranscript-impl`)
 
 ```bash
-uv sync                                  # cài dependencies
-uv run ruff check .                      # lint
-uv run pytest tests/ -v                  # unit tests (8 test)
-uv run python -m app.server              # chạy app (mở browser tự động)
-uv run python scripts/smoke_e2e.py       # smoke test macOS
-uv run python scripts/eval_wer.py        # đo WER (cần eval/sample.*)
+uv sync                                          # cài dependencies
+uv run ruff check .                              # lint
+uv run pytest tests/ -v                          # unit tests
+uv run python -m app.server                      # chạy app (mở browser tự động)
+uv run python scripts/smoke_e2e.py               # smoke test macOS
+uv run python scripts/eval_wer.py                # đo WER (cần eval/sample.*)
+uv run python scripts/smoke_punctuation_model.py # smoke test model dấu câu
+uv run python scripts/eval_punctuation.py        # đánh giá chất lượng phục hồi dấu câu
 ```
 
 ## Tham chiếu
