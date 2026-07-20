@@ -296,10 +296,16 @@ def _predict_actions(
             actions = [runtime.labels[index] for index in label_ids]
             if len(actions) != end - start:
                 raise RuntimeError("Model dấu câu trả sai số word")
-        except Exception:
+        except Exception as e:
             # Một chunk hỏng (ví dụ tokenizer nuốt trọn một token lạ) không được
             # làm mất dấu câu của cả file — _choose_overlapping mặc định $KEEP.
-            log.exception("Bỏ qua chunk dấu câu %d-%d", start, end)
+            # File dài có thể có hàng nghìn chunk (stride 36): chỉ log traceback
+            # đầy đủ cho chunk lỗi đầu tiên, các chunk sau chỉ log 1 dòng thông
+            # điệp — tránh làm ngập console người dùng đang theo dõi.
+            if failed == 0:
+                log.exception("Bỏ qua chunk dấu câu %d-%d", start, end)
+            else:
+                log.warning("Bỏ qua chunk dấu câu %d-%d: %s", start, end, e)
             failed += 1
             continue
         predictions.append((start, end, actions))

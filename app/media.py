@@ -119,7 +119,10 @@ def read_wav16k_float32(wav_path: Path, _chunk_frames: int = 960_000):
             if len(block) == 0:
                 # Header khai nhiều frame hơn dữ liệu thực (file bị cắt dở).
                 # Không thoát ở đây thì pos đứng yên và vòng lặp chạy mãi.
-                out = out[:pos]
+                # .copy(): out[:pos] là view — nếu giữ view thì mảng gốc (có thể
+                # rất lớn, vd header khai 4h nhưng data thực chỉ 1 phút) vẫn bị
+                # pin trong bộ nhớ dù kết quả trả về nhỏ hơn nhiều.
+                out = out[:pos].copy()
                 break
             out[pos : pos + len(block)] = block
             pos += len(block)

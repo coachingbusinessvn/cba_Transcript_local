@@ -91,15 +91,22 @@ def _status_path(job_id: str) -> Path:
     return config.jobs_dir() / job_id / "status.json"
 
 
-def _save_job(job_id: str, job: dict) -> None:
-    """Ghi trạng thái job ra đĩa (để UI không mất hết nếu process bị kill)."""
+def _save_job(job_id: str, job: dict) -> bool:
+    """Ghi trạng thái job ra đĩa (để UI không mất hết nếu process bị kill).
+
+    Trả về True nếu ghi thành công, False nếu thất bại — caller (_run_job) dùng
+    giá trị này để quyết định có được phép bỏ job khỏi RAM hay không: nếu đĩa
+    ghi lỗi thì RAM là nơi duy nhất còn giữ kết quả.
+    """
     path = _status_path(job_id)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Không ghi result khổng lồ quá thường xuyên — luôn ghi khi done/error
         path.write_text(json.dumps(job, ensure_ascii=False, default=str), encoding="utf-8")
+        return True
     except OSError as e:
         log.warning("Không ghi được status job %s: %s", job_id, e)
+        return False
 
 
 def _load_job_from_disk(job_id: str) -> dict | None:
@@ -180,11 +187,15 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
                 job["note"] = "\n".join(part for part in (existing, warning) if part)
             job.update(status="done", result=result, percent=100, message="Hoàn tất!")
             snap = dict(job)
-        _save_job(job_id, snap)
+        saved = _save_job(job_id, snap)
         # Kết quả đã nằm trên đĩa. Giữ tiếp trong RAM sẽ phình dần theo số job
         # (mỗi job mang cả transcript) — _get_job tự đọc lại từ status.json.
-        with _JOBS_LOCK:
-            JOBS.pop(job_id, None)
+        # Nếu ghi đĩa thất bại thì RAM là nơi duy nhất còn giữ kết quả — PHẢI
+        # giữ lại job trong JOBS (status đã là "done" ở trên, không phải "running",
+        # nên không ảnh hưởng kiểm tra 409 trong create_job).
+        if saved:
+            with _JOBS_LOCK:
+                JOBS.pop(job_id, None)
         log.info(
             "Job %s xong: %d câu, %.0fs",
             job_id,
@@ -198,9 +209,12 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
             job.update(status="error", message=f"Lỗi: {e}", percent=100)
             JOBS[job_id] = job
             snap = dict(job)
-        _save_job(job_id, snap)
-        with _JOBS_LOCK:
-            JOBS.pop(job_id, None)
+        saved = _save_job(job_id, snap)
+        # Cùng lý do như nhánh thành công: chỉ nhả RAM khi đĩa đã có bản ghi
+        # thay thế. status đã là "error", không phải "running".
+        if saved:
+            with _JOBS_LOCK:
+                JOBS.pop(job_id, None)
 
 
 @app.post("/api/jobs")
@@ -262,23 +276,26 @@ async def create_job(
             "model": model, "language": language, "punctuate": punctuate,
         })
         config.save_glossary_text(glossary)
+
+        opts = {
+            "model": model,
+            "language": language,
+            "diarize": diarize,
+            "punctuate": punctuate,
+            "num_speakers": num_speakers,
+            "glossary": glossary,
+        }
+        # daemon: khi process bị tắt (Ctrl+C) thì job dừng theo, không giữ interpreter
+        # sống chờ transcript dài xong. Job dở dang được _get_job phục hồi từ disk.
+        # Tạo + start thread nằm trong try: nếu Thread.start() ném RuntimeError
+        # (vd không tạo được thread mới), chỗ đã đặt cũng phải được nhả — nếu
+        # không job "running" kẹt vĩnh viễn và mọi job sau đều nhận 409.
+        t = threading.Thread(target=_run_job, args=(job_id, input_path, opts), daemon=True)
+        t.start()
     except Exception:
         with _JOBS_LOCK:
             JOBS.pop(job_id, None)
         raise
-
-    opts = {
-        "model": model,
-        "language": language,
-        "diarize": diarize,
-        "punctuate": punctuate,
-        "num_speakers": num_speakers,
-        "glossary": glossary,
-    }
-    # daemon: khi process bị tắt (Ctrl+C) thì job dừng theo, không giữ interpreter
-    # sống chờ transcript dài xong. Job dở dang được _get_job phục hồi từ disk.
-    t = threading.Thread(target=_run_job, args=(job_id, input_path, opts), daemon=True)
-    t.start()
     return {"job_id": job_id}
 
 

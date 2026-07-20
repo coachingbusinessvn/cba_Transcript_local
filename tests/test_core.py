@@ -442,6 +442,88 @@ def test_failed_job_is_also_evicted_from_memory(monkeypatch, tmp_path):
     assert server._get_job("j2")["status"] == "error"
 
 
+def test_create_job_releases_reservation_when_thread_start_fails(monkeypatch, tmp_path):
+    # Nếu Thread.start() ném RuntimeError (vd không tạo được thread mới), chỗ đã
+    # đặt phải được nhả — nếu không job "running" kẹt vĩnh viễn, mọi job sau 409.
+    from fastapi.testclient import TestClient
+
+    from app import config, media, server
+
+    class ExplodingThread:
+        def __init__(self, target, args, daemon):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(media, "duration_seconds", lambda path: 1.0)
+    monkeypatch.setattr(server.threading, "Thread", ExplodingThread)
+    server.JOBS.clear()
+    try:
+        c = TestClient(server.app)
+        with pytest.raises(RuntimeError, match="can't start new thread"):
+            c.post(
+                "/api/jobs",
+                files={"file": ("hop.wav", b"RIFF", "audio/wav")},
+                data={"model": "phowhisper-small"},
+            )
+        assert server.JOBS == {}
+    finally:
+        server.JOBS.clear()
+
+
+def test_finished_job_stays_in_ram_when_disk_write_fails(monkeypatch, tmp_path):
+    # Nếu ghi status.json thất bại (ví dụ hết đĩa), job "done" không được biến mất
+    # khỏi RAM — nếu không, kết quả không nằm ở đâu cả (đĩa lẫn RAM).
+    from app import config, pipeline, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(pipeline, "run", lambda *a, **k: {
+        "sentences": [{"start": 0.0, "end": 1.0, "text": "xin chào", "speaker": None}],
+        "duration": 1.0,
+        "num_speakers": 0,
+        "extracted_audio": None,
+        "model": "phowhisper-small",
+        "punctuation": {"requested": False, "applied": False, "warning": None},
+    })
+    monkeypatch.setattr(server, "_save_job", lambda job_id, job: False)
+    server.JOBS.clear()
+    server.JOBS["j3"] = {"status": "running", "filename": "a.wav", "model": "phowhisper-small"}
+
+    server._run_job("j3", tmp_path / "a.wav", {
+        "model": "phowhisper-small", "language": "vi", "diarize": False,
+        "punctuate": False, "num_speakers": 0, "glossary": "",
+    })
+
+    assert "j3" in server.JOBS
+    assert server.JOBS["j3"]["status"] == "done"       # không kẹt ở "running"
+    assert server.JOBS["j3"]["result"]["sentences"]    # kết quả vẫn đọc được qua RAM
+
+
+def test_failed_job_stays_in_ram_when_disk_write_fails(monkeypatch, tmp_path):
+    # Tương tự nhưng cho nhánh lỗi: pop cũng phải được gate theo kết quả ghi đĩa.
+    from app import config, pipeline, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+
+    def boom(*a, **k):
+        raise RuntimeError("ffmpeg lỗi")
+
+    monkeypatch.setattr(pipeline, "run", boom)
+    monkeypatch.setattr(server, "_save_job", lambda job_id, job: False)
+    server.JOBS.clear()
+    server.JOBS["j4"] = {"status": "running", "filename": "b.wav", "model": "phowhisper-small"}
+
+    server._run_job("j4", tmp_path / "b.wav", {
+        "model": "phowhisper-small", "language": "vi", "diarize": False,
+        "punctuate": False, "num_speakers": 0, "glossary": "",
+    })
+
+    assert "j4" in server.JOBS
+    assert server.JOBS["j4"]["status"] == "error"      # không kẹt ở "running"
+
+
 def test_sha256_file_matches_hashlib(tmp_path):
     import hashlib
 
@@ -525,8 +607,10 @@ def test_load_model_frees_old_model_before_building_new(monkeypatch):
 
     tr._MODEL_CACHE.clear()
     tr._MODEL_CACHE["phowhisper-large"] = object()
-    tr.load_model("phowhisper-small")
+    try:
+        tr.load_model("phowhisper-small")
 
-    assert seen_during_construct["cache"] == {}
-    assert list(tr._MODEL_CACHE) == ["phowhisper-small"]
-    tr._MODEL_CACHE.clear()
+        assert seen_during_construct["cache"] == {}
+        assert list(tr._MODEL_CACHE) == ["phowhisper-small"]
+    finally:
+        tr._MODEL_CACHE.clear()
