@@ -397,11 +397,11 @@ def test_create_job_passes_and_persists_punctuate(monkeypatch, tmp_path):
 
 
 def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_path):
-    from app import pipeline, server
+    from app import config, pipeline, server
 
     job_id = "punctwarn001"
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
     server.JOBS[job_id] = {"status": "running", "note": "Đã tắt diarization."}
-    monkeypatch.setattr(server, "_save_job", lambda *args: None)
     monkeypatch.setattr(
         pipeline,
         "run",
@@ -417,12 +417,14 @@ def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_p
         "model": "phowhisper-small", "language": "vi", "diarize": False,
         "punctuate": True, "num_speakers": 0, "glossary": "",
     })
-    assert server.JOBS[job_id]["status"] == "done"
-    assert server.JOBS[job_id]["note"].splitlines() == [
+    # Job đã kết thúc: không còn trong RAM, nguồn chân lý là status.json
+    assert job_id not in server.JOBS
+    job = server._get_job(job_id)
+    assert job["status"] == "done"
+    assert job["note"].splitlines() == [
         "Đã tắt diarization.",
         "Không thể chạy model dấu câu; transcript gốc vẫn được giữ nguyên.",
     ]
-    server.JOBS.pop(job_id, None)
 
 
 def test_ui_contains_punctuation_checkbox_and_form_contract():

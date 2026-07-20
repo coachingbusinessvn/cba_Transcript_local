@@ -173,6 +173,10 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
             job.update(status="done", result=result, percent=100, message="Hoàn tất!")
             snap = dict(job)
         _save_job(job_id, snap)
+        # Kết quả đã nằm trên đĩa. Giữ tiếp trong RAM sẽ phình dần theo số job
+        # (mỗi job mang cả transcript) — _get_job tự đọc lại từ status.json.
+        with _JOBS_LOCK:
+            JOBS.pop(job_id, None)
         log.info(
             "Job %s xong: %d câu, %.0fs",
             job_id,
@@ -187,6 +191,8 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
             JOBS[job_id] = job
             snap = dict(job)
         _save_job(job_id, snap)
+        with _JOBS_LOCK:
+            JOBS.pop(job_id, None)
 
 
 @app.post("/api/jobs")

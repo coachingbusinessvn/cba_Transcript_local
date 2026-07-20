@@ -394,3 +394,49 @@ def test_run_ffmpeg_raises_on_timeout(monkeypatch):
 
     with pytest.raises(RuntimeError, match="quá"):
         media._run_ffmpeg(["-i", "x.wav", "y.wav"])
+
+
+def test_finished_job_is_evicted_from_memory(monkeypatch, tmp_path):
+    from app import config, pipeline, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(pipeline, "run", lambda *a, **k: {
+        "sentences": [{"start": 0.0, "end": 1.0, "text": "xin chào", "speaker": None}],
+        "duration": 1.0,
+        "num_speakers": 0,
+        "extracted_audio": None,
+        "model": "phowhisper-small",
+        "punctuation": {"requested": False, "applied": False, "warning": None},
+    })
+    server.JOBS.clear()
+    server.JOBS["j1"] = {"status": "running", "filename": "a.wav", "model": "phowhisper-small"}
+
+    server._run_job("j1", tmp_path / "a.wav", {
+        "model": "phowhisper-small", "language": "vi", "diarize": False,
+        "punctuate": False, "num_speakers": 0, "glossary": "",
+    })
+
+    assert "j1" not in server.JOBS          # không giữ transcript trong RAM
+    assert server._get_job("j1")["status"] == "done"   # vẫn đọc được từ đĩa
+
+
+def test_failed_job_is_also_evicted_from_memory(monkeypatch, tmp_path):
+    from app import config, pipeline, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+
+    def boom(*a, **k):
+        raise RuntimeError("ffmpeg lỗi")
+
+    monkeypatch.setattr(pipeline, "run", boom)
+    server.JOBS.clear()
+    server.JOBS["j2"] = {"status": "running", "filename": "b.wav", "model": "phowhisper-small"}
+
+    server._run_job("j2", tmp_path / "b.wav", {
+        "model": "phowhisper-small", "language": "vi", "diarize": False,
+        "punctuate": False, "num_speakers": 0, "glossary": "",
+    })
+
+    # Quan trọng: job lỗi cũng phải rời RAM, nếu không nó chặn mọi job sau bằng 409
+    assert "j2" not in server.JOBS
+    assert server._get_job("j2")["status"] == "error"
