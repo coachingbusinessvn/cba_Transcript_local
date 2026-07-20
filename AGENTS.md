@@ -17,8 +17,8 @@
 - A new risk or blocker is identified or resolved
 
 **How to update:**
-1. Edit the `<!-- auto-update: start --> … <!-- auto-update: end -->` block in `CLAUDE.md`
-2. Edit the `<!-- status-block: start --> … <!-- status-block: end -->` block in `AGENTS.md`
+1. Edit the auto-update block (between `auto-update` HTML comments) in `CLAUDE.md`
+2. Edit the status block (between `status-block` HTML comments) in `AGENTS.md`
 3. Keep both files in sync — they describe the same project state
 4. Commit the updated context files together with the code change in the same commit
 
@@ -86,47 +86,46 @@ docs/
 <!-- status-block: start -->
 ## Current status (2026-07-20)
 
-**Progress:** 17/21 tasks done 🟢 | 2 in-progress 🔵 | 2 not started ⚪
+**Progress:** 17/21 tasks done 🟢 | 3 in-progress 🔵 | 1 not started ⚪
 
 **App modules in `.worktrees/vitranscript-impl/app/`:**
 `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
 
 **Task table:**
 
-| # | Task | Status | Notes |
-|---|------|--------|-------|
-| 0 | Project scaffold (`pyproject.toml` + ruff, `.python-version`, package `app`) | 🟢 | `uv.lock` committed; `numpy>=1.26` explicit |
-| 1 | Config & model registry (`app/config.py`) | 🟢 | HF repos verified 2026-07-17 |
-| 2 | Media / ffmpeg (`app/media.py`) | 🟢 | |
-| 3 | Transcribe faster-whisper (`app/transcribe.py`) | 🟢 | hotwords + fallback; 1 model cached per process |
+| # | Task | Trạng thái | Ghi chú |
+|---|------|-----------|---------|
+| 0 | Khung dự án (`pyproject.toml` + ruff, `.python-version`, package `app`) | 🟢 | Commit `uv.lock`; có `numpy>=1.26` |
+| 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17) |
+| 2 | Media/ffmpeg (`app/media.py`) | 🟢 | |
+| 3 | Transcribe faster-whisper (`app/transcribe.py`) | 🟢 | `hotwords` + fallback; cache 1 model/process |
 | 4 | Diarization sherpa-onnx (`app/diarize.py`) | 🟢 | |
-| 5 | Glossary 2-tier (`app/glossary.py`) | 🟢 | |
-| 6 | Sentence split + speaker assign (`app/segment.py`) | 🟢 | |
-| 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style with try/except |
-| 7b | Master pipeline (`app/pipeline.py`) | 🟢 | Uses cached `load_model` |
-| 8 | Unit tests core (`tests/test_core.py`, 8 tests) | 🟢 | 8 tests pass |
-| 9 | FastAPI web server (`app/server.py`) | 🟢 | HTTP 409 on duplicate job; export filename = source stem |
-| 10 | Vietnamese web UI (`app/static/index.html`) | 🟢 | |
-| 11 | 1-click install scripts (4 files) | 🟢 | Windows needs real machine to verify fully |
-| 12 | E2E smoke test (`scripts/smoke_e2e.py`) | 🟢 | macOS: pass with `tiny` model; Windows → UI + unit tests |
-| 12b | WER golden file (`scripts/eval_wer.py`) | 🟢 | Scaffolding done; WER = — (no user audio sample yet) |
-| 13 | End-user README | 🟢 | Data paths Mac/Windows/Linux; WER column "not yet measured" |
-| 14 | Acceptance test 6 criteria + tag `v0.1.0` | 🔵 | Partial pass — no tag yet (missing clean machine / long file / WER) |
-| 15 | Punctuation restoration ViBERT-CAPU ONNX (`app/punctuate.py`) | 🔵 | Module + UI + tests done; release gates PR-13/PR-14 not fully verified |
+| 5 | Glossary 2 tầng (`app/glossary.py`) | 🟢 | |
+| 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
+| 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
+| 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
+| 8 | Unit tests core (`tests/test_core.py`, 8 test) | 🟢 | 8 test pass |
+| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
+| 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
+| 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
+| 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
+| 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
+| 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
+| 14 | Nghiệm thu 6 tiêu chí + tag `v0.1.0` | 🔵 | Nghiệm thu một phần — chưa gắn tag `v0.1.0` (thiếu máy sạch / file dài / WER) |
+| 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 
 **Open risks / blockers:**
-- [ ] Windows installer verify — no real Windows machine available
-- [ ] Diarization quality on shared-mic recordings — needs real user audio
-- [ ] Task 12b: user must supply 3–5 min real audio + manual transcript for WER
-- [ ] Task 15: punctuation release gates PR-13/PR-14 not fully verified
-- [ ] Job output GC (disk) — v1: manual deletion via README data path
+- [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
+- [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
+- [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
+- [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
 
 **5 most recent commits (worktree):**
-- `7660b72 docs: verify punctuation restoration release gates`
-- `2594ed3 test: align UI contract with punctuationMeta helper`
-- `4f1ca45 feat: add punctuation UI option`
-- `205103e feat: expose punctuation job option`
-- `9022e6c feat: add punctuation pipeline stage`
+- `b3c69b1 docs: sua CLAUDE.md (rule section bi hook lam lon)`
+- `bd84367 docs: update CLAUDE.md + tao AGENTS.md day du voi rule tu cap nhat`
+- `db4214b claude`
+- `4b13de5 docs: thiet ke vo desktop v1.5 (script uv + app bundle + tray + uninstall sach)`
+- `efded9e docs: plan review P0/P1 patches + worktrees gitignore`
 <!-- status-block: end -->
 
 ---
@@ -177,7 +176,7 @@ uv run python scripts/eval_punctuation.py        # punctuation quality eval
 
 ## Commit convention
 
-Flow per task: code → `uv run ruff check .` clean → verify step → commit.
+Flow per task: code → `uv run ruff check .` clean → verify step → update CLAUDE.md + AGENTS.md → commit.
 
 Trailer required on every commit:
 ```

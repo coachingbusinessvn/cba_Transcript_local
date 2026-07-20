@@ -145,88 +145,56 @@ def update_claude_md():
     print("  ✓ CLAUDE.md đã cập nhật")
 
 
-# ── Tái tạo AGENTS.md ─────────────────────────────────────────────────────────
+# ── Cập nhật AGENTS.md (chỉ thay block status) ───────────────────────────────
 
-def write_agents_md():
+_AGENTS_START = "<!-- status-block: start -->"
+_AGENTS_END   = "<!-- status-block: end -->"
+
+
+def build_agents_status_section() -> str:
     done, in_progress, todo = count_task_states()
     total = done + in_progress + todo
     table = get_task_table()
-    commits = get_recent_commits(3)
+    risks = get_open_risks()
+    commits = get_recent_commits(5)
     files = get_worktree_app_files()
 
-    content = f"""\
-# ViTranscript — Agent Context
+    risks_block = f"\n\n**Open risks / blockers:**\n{risks}" if risks.strip() else ""
+    return f"""\
+## Current status (2026-07-20)
 
-> Auto-generated. Do not edit manually — regenerated on every commit to main.
-> Canonical detail docs: `docs/01-bai-toan.md`, `docs/02-plan.md`, `docs/03-tasks.md`.
+**Progress:** {done}/{total} tasks done 🟢 | {in_progress} in-progress 🔵 | {todo} not started ⚪
 
-## What this project is
+**App modules in `.worktrees/vitranscript-impl/app/`:**
+{files}
 
-Local-first Vietnamese transcription app (Mac/Windows). Input: audio/video file.
-Output: DOCX/XLSX/SRT/TXT with timestamps and speaker labels. Fully offline after first model download.
+**Task table:**
 
-## Repository layout
+{table}{risks_block}
 
-```
-docs/              Technical docs (no code here)
-  01-bai-toan.md   Problem statement, tech decisions, acceptance criteria
-  02-plan.md       Per-task plan with full code, interfaces, verify steps
-  03-tasks.md      Task tracking table (status, notes, WER results)
-.worktrees/
-  vitranscript-impl/   ALL CODE lives here (git worktree branch)
-CLAUDE.md          AI-context file (auto-updated)
-AGENTS.md          This file (auto-updated)
-```
+**5 most recent commits (worktree):**
+{commits}"""
 
-**Important:** to work with code, always use `.worktrees/vitranscript-impl/` path.
 
-## Tech stack
+def update_agents_md():
+    if not AGENTS_MD.exists():
+        print("  ✗ Không tìm thấy AGENTS.md")
+        return
 
-| Component | Library | Constraint |
-|---|---|---|
-| Transcript | faster-whisper (CTranslate2, CPU int8) | NO PyTorch |
-| Diarization | sherpa-onnx (pyannote seg3 ONNX + eres2net) | No HF token needed |
-| Web UI | FastAPI + single static HTML | localhost 127.0.0.1 only |
-| Install | `uv` (self-installs Python 3.12) | |
-| Python | `>=3.10,<3.13` | |
+    text = AGENTS_MD.read_text(encoding="utf-8")
+    new_section = f"{_AGENTS_START}\n{build_agents_status_section()}\n{_AGENTS_END}"
 
-## Current implementation status ({done}/{total} tasks done)
-
-{table}
-
-**App modules present:** {files}
-
-**Recent commits:**
-
-{commits}
-
-## Hard constraints (never violate)
-
-- NO dependency that pulls PyTorch or TensorFlow
-- v1: **one job at a time** — server returns HTTP 409 if a job is already running
-- Server binds `127.0.0.1` only — never `0.0.0.0`
-- `"speaker-recongition-models"` in diarization URL — intentional typo from upstream, do NOT "fix"
-- `.bat` scripts: no Vietnamese diacritics (Windows codepage issues)
-- `names` dict keys are always strings: `"0"`, `"1"`, ... (consistent across export/server/UI)
-
-## Dev commands (run from `.worktrees/vitranscript-impl/`)
-
-```bash
-uv sync                           # install/update deps
-uv run ruff check .               # lint (must be clean before commit)
-uv run pytest tests/ -v           # 8 unit tests
-uv run python -m app.server       # start app (auto-opens browser at port 8756+)
-uv run python scripts/smoke_e2e.py    # macOS smoke test
-uv run python scripts/eval_wer.py     # WER measurement (needs eval/sample.*)
-```
-
-## Commit convention
-
-Each task: code → `uv run ruff check .` → verify → commit.
-Trailer line: `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
-"""
-    AGENTS_MD.write_text(content, encoding="utf-8")
-    print("  ✓ AGENTS.md đã cập nhật")
+    if _AGENTS_START in text and _AGENTS_END in text:
+        text = re.sub(
+            re.escape(_AGENTS_START) + r".*?" + re.escape(_AGENTS_END),
+            new_section,
+            text,
+            flags=re.DOTALL,
+        )
+        AGENTS_MD.write_text(text, encoding="utf-8")
+        print("  ✓ AGENTS.md đã cập nhật")
+    else:
+        print("  ✗ AGENTS.md thiếu markers <!-- status-block: start/end --> — bỏ qua")
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -234,5 +202,5 @@ Trailer line: `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
 if __name__ == "__main__":
     print("Đang cập nhật context files...")
     update_claude_md()
-    write_agents_md()
+    update_agents_md()
     print("Xong.")
