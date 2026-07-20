@@ -23,7 +23,7 @@ app/
   static/
     index.html    UI tiếng Việt (thuần HTML/CSS/JS, offline)
 tests/
-  test_core.py    8 unit tests
+  test_core.py, test_punctuate.py    57 unit tests (1 deselected)
 scripts/
   smoke_e2e.py    smoke test macOS (dùng lệnh `say`)
   eval_wer.py     đo WER với golden file trong eval/
