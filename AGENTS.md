@@ -121,11 +121,11 @@ docs/
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
 
 **5 most recent commits (worktree):**
+- `b90fc98 docs: sua so unit test (8 -> so thuc te)`
 - `91a9fab docs: cap nhat trang thai sau hook tu dong`
 - `6dbfada docs: fix AGENTS.md va update_context.py`
 - `b3c69b1 docs: sua CLAUDE.md (rule section bi hook lam lon)`
 - `bd84367 docs: update CLAUDE.md + tao AGENTS.md day du voi rule tu cap nhat`
-- `db4214b claude`
 <!-- status-block: end -->
 
 ---
