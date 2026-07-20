@@ -4,10 +4,16 @@ from dataclasses import dataclass
 from .diarize import SpeakerTurn
 from .transcribe import Word
 
+# Dấu kết câu "cứng" — luôn ngắt. Dấu "mềm" (phẩy/chấm phẩy) chỉ ngắt khi câu đã
+# đủ dài, để không băm vụn câu ngắn nhưng vẫn tránh cắt cứng giữa mệnh đề.
 _SENTENCE_END = (".", "!", "?", "…")
-_MAX_SENTENCE_SECONDS = 15.0
-_MAX_SENTENCE_WORDS = 40
-_GAP_BREAK_SECONDS = 1.2
+_SOFT_END = (",", ";", ":")
+_MAX_SENTENCE_SECONDS = 20.0   # trần cứng: quá mốc này cắt dù chưa gặp dấu câu
+_MAX_SENTENCE_WORDS = 55
+_SOFT_BREAK_SECONDS = 12.0     # quá mốc này, cho phép ngắt tại dấu phẩy gần nhất
+# PhoWhisper hay thiếu dấu câu tiếng Việt; ngập ngừng/lấy hơi tạo khoảng lặng ngắn
+# giữa câu. Ngưỡng 2.0s chỉ ngắt khi thật sự ngừng, tránh đứt câu vì lấy hơi.
+_GAP_BREAK_SECONDS = 2.0
 
 
 @dataclass
@@ -34,11 +40,12 @@ def build_sentences(words: list[Word]) -> list[Sentence]:
         if buf and w.start - buf[-1].end > _GAP_BREAK_SECONDS:
             flush()
         buf.append(w)
-        too_long = (
-            buf[-1].end - buf[0].start > _MAX_SENTENCE_SECONDS
-            or len(buf) >= _MAX_SENTENCE_WORDS
-        )
-        if w.text.rstrip().endswith(_SENTENCE_END) or too_long:
+        span = buf[-1].end - buf[0].start
+        too_long = span > _MAX_SENTENCE_SECONDS or len(buf) >= _MAX_SENTENCE_WORDS
+        stripped = w.text.rstrip()
+        ends_hard = stripped.endswith(_SENTENCE_END)
+        ends_soft = stripped.endswith(_SOFT_END)
+        if ends_hard or too_long or (span > _SOFT_BREAK_SECONDS and ends_soft):
             flush()
     flush()
     return sentences

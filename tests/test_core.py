@@ -23,8 +23,31 @@ def test_build_sentences_breaks_on_punctuation():
 
 
 def test_build_sentences_breaks_on_gap():
-    words = _words([(0.0, 0.5, " một"), (5.0, 5.5, " hai")])  # gap 4.5s > 1.2s
+    words = _words([(0.0, 0.5, " một"), (5.0, 5.5, " hai")])  # gap 4.5s > 2.0s
     assert len(build_sentences(words)) == 2
+
+
+def test_build_sentences_short_pause_does_not_break():
+    # Lấy hơi giữa câu (~1.5s < 2.0s) không được cắt câu
+    words = _words([(0.0, 0.5, " tôi"), (2.0, 2.5, " nghĩ")])
+    assert len(build_sentences(words)) == 1
+
+
+def test_build_sentences_soft_breaks_long_clause_on_comma():
+    # Câu dài không có dấu chấm; qua mốc mềm (12s) gặp dấu phẩy → ngắt tại đó
+    words = [Word(float(i), float(i) + 1.0, f" w{i}") for i in range(13)]
+    words.append(Word(13.0, 14.0, " nữa,"))  # span ~14s > 12s, kết bằng phẩy
+    words.append(Word(14.0, 15.0, " rồi."))
+    sents = build_sentences(words)
+    assert len(sents) == 2
+    assert sents[0].text.endswith("nữa,")
+
+
+def test_build_sentences_early_comma_does_not_break():
+    # Dấu phẩy sớm (câu còn ngắn, < 12s) không được ngắt
+    words = _words([(0.0, 0.5, " ừ,"), (0.5, 1.0, " đúng."), (1.0, 1.5, " ok")])
+    sents = build_sentences(words)
+    assert sents[0].text == "ừ, đúng."
 
 
 def test_assign_speakers_by_overlap():
