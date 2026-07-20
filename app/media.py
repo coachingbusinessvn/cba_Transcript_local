@@ -48,9 +48,19 @@ def duration_seconds(path: Path) -> float | None:
         return None
 
 
+# 1 giờ: dư cho file 4h convert trên CPU yếu, nhưng chặn được ffmpeg treo vĩnh viễn.
+_FFMPEG_TIMEOUT = 3600
+
+
 def _run_ffmpeg(args: list[str]) -> None:
     cmd = [ffmpeg_path(), "-hide_banner", "-y", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_FFMPEG_TIMEOUT)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"ffmpeg chạy quá {_FFMPEG_TIMEOUT // 60} phút mà chưa xong — đã dừng. "
+            "File có thể bị hỏng."
+        ) from e
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg lỗi: {proc.stderr[-2000:]}")
 

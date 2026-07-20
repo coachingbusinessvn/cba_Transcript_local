@@ -1,4 +1,5 @@
 import struct
+import subprocess
 import tempfile
 import wave
 from pathlib import Path
@@ -379,3 +380,17 @@ def test_read_wav16k_float32_handles_truncated_file(tmp_path):
     samples = read_wav16k_float32(p)
 
     assert len(samples) == 16000  # trả về đúng phần đọc được, không treo
+
+
+def test_run_ffmpeg_raises_on_timeout(monkeypatch):
+    from app import media
+
+    def fake_run(cmd, **kwargs):
+        assert kwargs.get("timeout") == media._FFMPEG_TIMEOUT
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+    monkeypatch.setattr(media.subprocess, "run", fake_run)
+    monkeypatch.setattr(media, "ffmpeg_path", lambda: "ffmpeg")
+
+    with pytest.raises(RuntimeError, match="quá"):
+        media._run_ffmpeg(["-i", "x.wav", "y.wav"])
