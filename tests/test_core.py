@@ -499,3 +499,12 @@ def test_download_accepts_matching_hash(tmp_path, monkeypatch):
     diarize._download("https://example.invalid/m.onnx", dest, hashlib.sha256(payload).hexdigest())
 
     assert dest.read_bytes() == payload
+
+
+def test_clean_names_drops_non_string_values():
+    from app.server import _clean_names
+
+    assert _clean_names({"0": "Huy", "1": 123, "2": None}) == {"0": "Huy"}
+    assert _clean_names(None) == {}
+    assert _clean_names("khong phai dict") == {}
+    assert _clean_names({0: "Huy"}) == {"0": "Huy"}  # key so -> chuoi

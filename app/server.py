@@ -79,6 +79,14 @@ def _apply_speaker_overrides(sentences: list[Sentence], overrides: dict | None) 
             sentences[i].speaker = spk
 
 
+def _clean_names(raw) -> dict[str, str]:
+    """names do client gửi: chỉ nhận map str→str. Entry sai kiểu bỏ qua êm,
+    tránh AttributeError trong speaker_name làm export trả 500."""
+    if not isinstance(raw, dict):
+        return {}
+    return {str(k): v for k, v in raw.items() if isinstance(v, str)}
+
+
 def _status_path(job_id: str) -> Path:
     return config.jobs_dir() / job_id / "status.json"
 
@@ -338,7 +346,7 @@ def export_job(job_id: str, body: dict):
     fmt = body.get("format", "docx")
     if fmt not in _EXPORTERS:
         raise HTTPException(400, "Định dạng không hợp lệ")
-    names = body.get("names") or {}
+    names = _clean_names(body.get("names"))
     sentences = [Sentence(**s) for s in job["result"]["sentences"]]
     _apply_speaker_overrides(sentences, body.get("speakers"))
     stem = Path(job["filename"]).stem
