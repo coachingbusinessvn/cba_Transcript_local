@@ -13,3 +13,6 @@ eval/punctuation_reference.txt
 
 # Git worktrees
 .worktrees/
+
+# State tam cua superpowers skill (khong phai san pham)
+.superpowers/
