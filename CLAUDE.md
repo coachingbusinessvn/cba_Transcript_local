@@ -51,7 +51,7 @@ scripts/
 ```bash
 uv sync                           # cài/cập nhật dependencies
 uv run ruff check .               # lint (phải sạch trước commit)
-uv run pytest tests/ -v           # unit tests — expected: 8 passed
+uv run pytest tests/ -v           # unit tests — expected: 57 passed, 1 deselected
 uv run python -m app.server       # chạy app (tự mở browser port 8756+)
 uv run python scripts/smoke_e2e.py    # smoke test macOS
 uv run python scripts/eval_wer.py     # đo WER (cần eval/sample.*)

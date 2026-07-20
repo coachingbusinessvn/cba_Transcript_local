@@ -143,7 +143,7 @@ def merge_minor_speakers(
     for i in range(n - 1, -1, -1):
         if new_spk[i] in keep:
             next_kept = new_spk[i]
-        elif new_spk[i] not in keep and next_kept is not None:
+        elif next_kept is not None:
             new_spk[i] = next_kept
 
     # pass 3: bất kỳ id còn lại ngoài keep → map về speaker dài nhất
