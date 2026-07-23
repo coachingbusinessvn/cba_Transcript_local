@@ -126,6 +126,42 @@ def test_ensure_model_dir_rejects_corrupted_cached_file(monkeypatch, tmp_path):
         punctuate._ensure_model_dir()
 
 
+def test_ensure_model_dir_does_not_rewrite_manifest_when_already_cached(monkeypatch, tmp_path):
+    from app import config, punctuate
+
+    payload = b"already-cached"
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.setitem(config.PUNCTUATION_MODEL, "size", len(payload))
+    monkeypatch.setitem(
+        config.PUNCTUATION_MODEL, "sha256", hashlib.sha256(payload).hexdigest()
+    )
+    root = config.punctuation_dir()
+    (root / config.PUNCTUATION_MODEL["filename"]).write_bytes(payload)
+    (root / "vocab.txt").write_text("[PAD]\n[UNK]\n", encoding="utf-8")
+    labels = root / "vocabulary" / "labels.txt"
+    labels.parent.mkdir(parents=True)
+    labels.write_text("$KEEP\n", encoding="utf-8")
+    (root / "config.json").write_text("{}", encoding="utf-8")
+    (root / "README.md").write_text("license", encoding="utf-8")
+    config.punctuation_manifest_path().write_text(
+        json.dumps({
+            "revision": config.PUNCTUATION_MODEL["revision"],
+            "sha256": config.PUNCTUATION_MODEL["sha256"],
+        }),
+        encoding="utf-8",
+    )
+
+    def forbidden_snapshot_download(**kwargs):
+        raise AssertionError("không được tải lại khi cache đã đầy đủ")
+
+    def forbidden_write_manifest(root):
+        raise AssertionError("không được ghi lại manifest khi cache đã đầy đủ")
+
+    monkeypatch.setattr(punctuate, "_snapshot_download", forbidden_snapshot_download)
+    monkeypatch.setattr(punctuate, "_write_manifest", forbidden_write_manifest)
+    assert punctuate._ensure_model_dir() == root
+
+
 def test_runtime_is_cached_once(monkeypatch, tmp_path):
     from app import punctuate
 
@@ -286,6 +322,25 @@ def test_restore_stops_after_first_pass_when_nothing_changes(monkeypatch):
     result = punctuate.restore(words)
     assert result.applied is True
     assert len(calls) == 1
+
+
+def test_restore_caps_refinement_at_three_passes_even_if_never_converges(monkeypatch):
+    from app import punctuate
+
+    words = [Word(0.0, 1.0, " hà")]
+    calls = []
+
+    def fake_predict(pieces, runtime, progress_cb=None):
+        calls.append(1)
+        # Luôn đổi qua lại giữa hoa/thường — không bao giờ hội tụ, để test này
+        # thật sự chứng minh cái trần 3 pass chứ không phải early-exit tự nhiên.
+        action = "$TRANSFORM_CASE_UPPER" if len(calls) % 2 == 1 else "$TRANSFORM_CASE_LOWER"
+        return [action], 0
+
+    monkeypatch.setattr(punctuate, "_load_runtime", lambda: object())
+    monkeypatch.setattr(punctuate, "_predict_actions", fake_predict)
+    punctuate.restore(words)
+    assert len(calls) == 3
 
 
 def test_overlap_prefers_prediction_furthest_from_chunk_edge():

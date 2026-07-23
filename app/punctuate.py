@@ -58,7 +58,8 @@ def _write_manifest(root: Path) -> None:
 
 def _ensure_model_dir() -> Path:
     root = config.punctuation_dir()
-    if not config.punctuation_is_downloaded():
+    cached = config.punctuation_is_downloaded()
+    if not cached:
         _snapshot_download(
             repo_id=config.PUNCTUATION_MODEL["repo_id"],
             revision=config.PUNCTUATION_MODEL["revision"],
@@ -69,7 +70,8 @@ def _ensure_model_dir() -> Path:
     # Hàm này chỉ chạy một lần mỗi process (qua cache của _load_runtime), nên luôn
     # băm lại artifact trước khi đưa cho ONNX Runtime.
     _verify_artifact(root)
-    _write_manifest(root)
+    if not cached:
+        _write_manifest(root)
     return root
 
 
