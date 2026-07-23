@@ -247,6 +247,45 @@ def test_restore_empty_does_not_load_runtime(monkeypatch):
     assert result == punctuate.PunctuationResult([], False, None)
 
 
+def test_restore_refines_until_a_pass_changes_nothing(monkeypatch):
+    from app import punctuate
+
+    words = [Word(0.0, 1.0, " hà"), Word(1.0, 2.0, " nội")]
+    seen: list[list[str]] = []
+
+    def fake_predict(pieces, runtime, progress_cb=None):
+        seen.append([piece.output_core + piece.suffix for piece in pieces])
+        if len(seen) == 1:
+            return ["$TRANSFORM_CASE_CAPITAL", "$TRANSFORM_CASE_CAPITAL"], 0
+        if len(seen) == 2:
+            return ["$KEEP", "$APPEND_."], 0
+        return ["$KEEP", "$KEEP"], 0
+
+    monkeypatch.setattr(punctuate, "_load_runtime", lambda: object())
+    monkeypatch.setattr(punctuate, "_predict_actions", fake_predict)
+    result = punctuate.restore(words)
+    assert [word.text for word in result.words] == [" Hà", " Nội."]
+    # Pass 2 phải nhìn thấy kết quả pass 1 — đó là lý do vòng lặp tồn tại.
+    assert seen == [["hà", "nội"], ["Hà", "Nội"], ["Hà", "Nội."]]
+
+
+def test_restore_stops_after_first_pass_when_nothing_changes(monkeypatch):
+    from app import punctuate
+
+    words = [Word(0.0, 1.0, " nguyên")]
+    calls = []
+
+    def fake_predict(pieces, runtime, progress_cb=None):
+        calls.append(1)
+        return ["$KEEP"], 0
+
+    monkeypatch.setattr(punctuate, "_load_runtime", lambda: object())
+    monkeypatch.setattr(punctuate, "_predict_actions", fake_predict)
+    result = punctuate.restore(words)
+    assert result.applied is True
+    assert len(calls) == 1
+
+
 def test_overlap_prefers_prediction_furthest_from_chunk_edge():
     from app.punctuate import _choose_overlapping
 

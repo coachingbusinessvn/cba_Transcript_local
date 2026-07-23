@@ -349,6 +349,11 @@ def restore(
                 progress_cb(last_progress)
 
         failed_chunks = 0
+        # Iterative refinement kiểu GECToR: model được huấn luyện để tag nhiều vòng,
+        # pass sau đọc text đã được hoa/chấm ở pass trước nên bắt thêm được ranh giới
+        # câu. Thoát sớm ngay khi một pass không đổi gì, nên chi phí thường là 2 pass
+        # chứ không phải 3. progress_cb chỉ gắn vào pass đầu để thanh tiến trình
+        # không nhảy lùi.
         for iteration in range(3):
             actions, failed = _predict_actions(
                 pieces, runtime, monotonic if iteration == 0 else None
