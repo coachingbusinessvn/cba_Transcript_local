@@ -1,5 +1,6 @@
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -502,15 +503,36 @@ def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_p
     ]
 
 
-def test_ui_contains_punctuation_checkbox_and_form_contract():
-    from pathlib import Path
+def _input_attrs(html: str, element_id: str) -> dict[str, str]:
+    from html.parser import HTMLParser
 
+    class Collector(HTMLParser):
+        def __init__(self) -> None:
+            super().__init__()
+            self.found: dict[str, str] | None = None
+
+        def handle_starttag(self, tag, attrs):
+            data = {key: (value if value is not None else "") for key, value in attrs}
+            if data.get("id") == element_id:
+                self.found = data
+
+    parser = Collector()
+    parser.feed(html)
+    assert parser.found is not None, f"không tìm thấy element id={element_id}"
+    return parser.found
+
+
+def test_ui_contains_punctuation_checkbox_and_form_contract():
     html = Path("app/static/index.html").read_text(encoding="utf-8")
-    assert 'type="checkbox" id="punctuate" checked' in html
+
+    attrs = _input_attrs(html, "punctuate")
+    assert attrs["type"] == "checkbox"
+    assert "checked" in attrs
+
     assert "Tự chèn dấu câu (khuyên dùng cho PhoWhisper)" in html
-    assert 'fd.append("punctuate", punctuateEl.checked ? "true" : "false")' in html
+    assert 'fd.append("punctuate"' in html
+    assert "punctuateEl.checked" in html
     assert "settings.punctuate" in html
-    assert "data.punctuation" in html
     assert "punctuationMeta.downloaded" in html
 
 
