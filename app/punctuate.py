@@ -35,27 +35,18 @@ def _snapshot_download(**kwargs):
     return snapshot_download(**kwargs)
 
 
-def _ensure_model_dir() -> Path:
-    root = config.punctuation_dir()
-    if config.punctuation_is_downloaded():
-        return root
-
-    _snapshot_download(
-        repo_id=config.PUNCTUATION_MODEL["repo_id"],
-        revision=config.PUNCTUATION_MODEL["revision"],
-        local_dir=str(root),
-        allow_patterns=list(_REQUIRED_FILES),
-    )
+def _verify_artifact(root: Path) -> None:
     model_path = root / config.PUNCTUATION_MODEL["filename"]
     if model_path.stat().st_size != config.PUNCTUATION_MODEL["size"]:
         raise RuntimeError("Model dấu câu sai kích thước")
-    actual_hash = config.sha256_file(model_path)
-    if actual_hash != config.PUNCTUATION_MODEL["sha256"]:
+    if config.sha256_file(model_path) != config.PUNCTUATION_MODEL["sha256"]:
         raise RuntimeError("Model dấu câu sai SHA-256")
     for relative in _REQUIRED_FILES:
         if not (root / relative).is_file():
             raise RuntimeError(f"Model dấu câu thiếu file runtime: {relative}")
 
+
+def _write_manifest(root: Path) -> None:
     manifest = {
         "revision": config.PUNCTUATION_MODEL["revision"],
         "sha256": config.PUNCTUATION_MODEL["sha256"],
@@ -63,6 +54,22 @@ def _ensure_model_dir() -> Path:
     tmp = root / "manifest.json.tmp"
     tmp.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     os.replace(tmp, config.punctuation_manifest_path())
+
+
+def _ensure_model_dir() -> Path:
+    root = config.punctuation_dir()
+    if not config.punctuation_is_downloaded():
+        _snapshot_download(
+            repo_id=config.PUNCTUATION_MODEL["repo_id"],
+            revision=config.PUNCTUATION_MODEL["revision"],
+            local_dir=str(root),
+            allow_patterns=list(_REQUIRED_FILES),
+        )
+    # Manifest chỉ ghi revision + sha kỳ vọng, không phát hiện file hỏng sau khi ghi.
+    # Hàm này chỉ chạy một lần mỗi process (qua cache của _load_runtime), nên luôn
+    # băm lại artifact trước khi đưa cho ONNX Runtime.
+    _verify_artifact(root)
+    _write_manifest(root)
     return root
 
 

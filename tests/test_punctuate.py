@@ -96,6 +96,34 @@ def test_ensure_model_dir_rejects_wrong_hash(monkeypatch, tmp_path):
     assert not config.punctuation_manifest_path().exists()
 
 
+def test_ensure_model_dir_rejects_corrupted_cached_file(monkeypatch, tmp_path):
+    from app import config, punctuate
+
+    payload = b"abc"
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.setitem(config.PUNCTUATION_MODEL, "size", len(payload))
+    monkeypatch.setitem(
+        config.PUNCTUATION_MODEL, "sha256", hashlib.sha256(payload).hexdigest()
+    )
+    root = config.punctuation_dir()
+    # Đúng size, sai bytes — manifest hợp lệ nên punctuation_is_downloaded() True.
+    (root / config.PUNCTUATION_MODEL["filename"]).write_bytes(b"xyz")
+    config.punctuation_manifest_path().write_text(
+        json.dumps({
+            "revision": config.PUNCTUATION_MODEL["revision"],
+            "sha256": config.PUNCTUATION_MODEL["sha256"],
+        }),
+        encoding="utf-8",
+    )
+
+    def forbidden_download(**kwargs):
+        raise AssertionError("không được tải lại khi cache đã đầy đủ")
+
+    monkeypatch.setattr(punctuate, "_snapshot_download", forbidden_download)
+    with pytest.raises(RuntimeError, match="SHA-256"):
+        punctuate._ensure_model_dir()
+
+
 def test_runtime_is_cached_once(monkeypatch, tmp_path):
     from app import punctuate
 
