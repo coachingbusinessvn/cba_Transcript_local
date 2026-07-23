@@ -119,6 +119,12 @@ def test_case_actions_are_exact_and_unsupported_actions_keep_text():
     assert _apply_case("iphone", "$TRANSFORM_CASE_UPPER_-1") == "IPHONe"
     assert _apply_case("nguyên", "$TRANSFORM_VERB_VB_VBN") == "nguyên"
     assert _apply_case("nguyên", "$MERGE_SPACE") == "nguyên"
+    # Chỉ đổi đúng một ký tự — casing giữa từ do ASR/glossary tạo ra phải sống sót.
+    assert _apply_case("iPhone", "$TRANSFORM_CASE_CAPITAL") == "IPhone"
+    assert _apply_case("VNExpress", "$TRANSFORM_CASE_CAPITAL") == "VNExpress"
+    assert _apply_case("iphoneX", "$TRANSFORM_CASE_CAPITAL_1") == "iPhoneX"
+    assert _apply_case("", "$TRANSFORM_CASE_CAPITAL") == ""
+    assert _apply_case("a", "$TRANSFORM_CASE_CAPITAL_1") == "a"
 
 
 def test_chunk_ranges_have_48_words_and_12_overlap():

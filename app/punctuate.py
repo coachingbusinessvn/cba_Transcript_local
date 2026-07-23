@@ -139,14 +139,17 @@ _APPEND_ACTIONS = {
 
 
 def _apply_case(token: str, action: str) -> str:
+    # Mỗi action chỉ được đổi đúng phần ký tự nó mô tả. Dùng str.capitalize() sẽ
+    # hạ thấp phần đuôi và phá casing có sẵn ("iPhone" -> "Iphone"), mà invariant
+    # casefold() không phát hiện được.
     if action == "$TRANSFORM_CASE_LOWER":
         return token.lower()
     if action == "$TRANSFORM_CASE_UPPER":
         return token.upper()
-    if action == "$TRANSFORM_CASE_CAPITAL":
-        return token.capitalize()
+    if action == "$TRANSFORM_CASE_CAPITAL" and token:
+        return token[0].upper() + token[1:]
     if action == "$TRANSFORM_CASE_CAPITAL_1" and len(token) > 1:
-        return token[0] + token[1:].capitalize()
+        return token[:1] + token[1].upper() + token[2:]
     if action == "$TRANSFORM_CASE_UPPER_-1" and token:
         return token[:-1].upper() + token[-1]
     return token
