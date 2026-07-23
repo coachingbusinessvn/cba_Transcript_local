@@ -1,5 +1,6 @@
 import hashlib
 import json
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -504,8 +505,6 @@ def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_p
 
 
 def _input_attrs(html: str, element_id: str) -> dict[str, str]:
-    from html.parser import HTMLParser
-
     class Collector(HTMLParser):
         def __init__(self) -> None:
             super().__init__()
@@ -530,8 +529,7 @@ def test_ui_contains_punctuation_checkbox_and_form_contract():
     assert "checked" in attrs
 
     assert "Tự chèn dấu câu (khuyên dùng cho PhoWhisper)" in html
-    assert 'fd.append("punctuate"' in html
-    assert "punctuateEl.checked" in html
+    assert 'fd.append("punctuate", punctuateEl.checked ? "true" : "false")' in html
     assert "settings.punctuate" in html
     assert "punctuationMeta.downloaded" in html
 
