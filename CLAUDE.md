@@ -23,7 +23,7 @@ app/
   static/
     index.html    UI tiếng Việt (thuần HTML/CSS/JS, offline)
 tests/
-  test_core.py, test_punctuate.py    61 test thu thập — 60 chạy pass, 1 deselected
+  test_core.py, test_punctuate.py    65 test thu thập — 64 chạy pass, 1 deselected
 scripts/
   smoke_e2e.py    smoke test macOS (dùng lệnh `say`)
   eval_wer.py     đo WER với golden file trong eval/
@@ -51,7 +51,7 @@ scripts/
 ```bash
 uv sync                           # cài/cập nhật dependencies
 uv run ruff check .               # lint (phải sạch trước commit)
-uv run pytest tests/ -v           # unit tests — expected: 61 thu thập, 60 passed, 1 deselected
+uv run pytest tests/ -v           # unit tests — expected: 65 thu thập, 64 passed, 1 deselected
 uv run python -m app.server       # chạy app (tự mở browser port 8756+)
 uv run python scripts/smoke_e2e.py    # smoke test macOS
 uv run python scripts/eval_wer.py     # đo WER (cần eval/sample.*)
