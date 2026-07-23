@@ -340,10 +340,6 @@ def test_predict_actions_builds_word_offsets_for_onnx():
 
 @pytest.mark.model
 def test_real_punctuation_model_contract():
-    import os
-
-    if os.environ.get("VITRANSCRIPT_MODEL_TEST") != "1":
-        pytest.skip("set VITRANSCRIPT_MODEL_TEST=1 to run the pinned artifact")
     from app import config, punctuate
 
     words = [
@@ -588,3 +584,25 @@ def test_predict_actions_raises_when_every_chunk_fails(monkeypatch):
 
     with pytest.raises(RuntimeError):
         punctuate._predict_actions(pieces, runtime)
+
+
+def _load_eval_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "eval_punctuation", Path("scripts/eval_punctuation.py")
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_sentence_boundaries_ignores_duplicate_end_timestamps():
+    module = _load_eval_module()
+    words = [
+        Word(0.0, 1.0, " a."),
+        Word(1.0, 1.0, " b"),
+        Word(1.0, 2.0, " c."),
+    ]
+    # Word 1 trùng end với ranh giới câu đầu nhưng KHÔNG phải ranh giới.
+    assert module.sentence_boundaries(words) == {0, 2}

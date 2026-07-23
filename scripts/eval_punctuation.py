@@ -35,8 +35,18 @@ def reference_boundaries(text: str) -> set[int]:
 
 
 def sentence_boundaries(words: list[Word]) -> set[int]:
-    ends = {sentence.end for sentence in build_sentences(words)}
-    return {index for index, word in enumerate(words) if word.end in ends}
+    # Duyệt tiến theo con trỏ: hai word có thể trùng `end`, so timestamp bằng
+    # `in` sẽ đánh dấu nhầm word không phải ranh giới câu.
+    boundaries: set[int] = set()
+    cursor = 0
+    for sentence in build_sentences(words):
+        while cursor < len(words) and words[cursor].end != sentence.end:
+            cursor += 1
+        if cursor >= len(words):
+            break
+        boundaries.add(cursor)
+        cursor += 1
+    return boundaries
 
 
 def boundary_f1(predicted: set[int], expected: set[int], tolerance: int = 2) -> float:
@@ -54,31 +64,36 @@ def boundary_f1(predicted: set[int], expected: set[int], tolerance: int = 2) -> 
     return 2 * precision * recall / (precision + recall) if precision + recall else 0.0
 
 
-if not WORDS_PATH.exists() or not REFERENCE_PATH.exists():
-    sys.exit("Thiếu eval/punctuation_words.json hoặc punctuation_reference.txt")
+def main() -> None:
+    if not WORDS_PATH.exists() or not REFERENCE_PATH.exists():
+        sys.exit("Thiếu eval/punctuation_words.json hoặc punctuation_reference.txt")
 
-rows = json.loads(WORDS_PATH.read_text(encoding="utf-8"))
-raw = [Word(float(row["start"]), float(row["end"]), str(row["text"])) for row in rows]
-reference = REFERENCE_PATH.read_text(encoding="utf-8").strip()
-if lexical_tokens("".join(word.text for word in raw)) != lexical_tokens(reference):
-    sys.exit("Fixture reference phải có cùng lexical words với punctuation_words.json")
+    rows = json.loads(WORDS_PATH.read_text(encoding="utf-8"))
+    raw = [Word(float(row["start"]), float(row["end"]), str(row["text"])) for row in rows]
+    reference = REFERENCE_PATH.read_text(encoding="utf-8").strip()
+    if lexical_tokens("".join(word.text for word in raw)) != lexical_tokens(reference):
+        sys.exit("Fixture reference phải có cùng lexical words với punctuation_words.json")
 
-result = punctuate.restore(raw)
-if not result.applied:
-    sys.exit(result.warning or "Punctuation không chạy")
-expected = reference_boundaries(reference)
-baseline_f1 = boundary_f1(sentence_boundaries(raw), expected)
-restored_f1 = boundary_f1(sentence_boundaries(result.words), expected)
-baseline_text = " ".join(lexical_tokens("".join(word.text for word in raw)))
-restored_text = " ".join(lexical_tokens("".join(word.text for word in result.words)))
-lexical_wer = wer(baseline_text, restored_text)
-report = {
-    "revision": config.PUNCTUATION_MODEL["revision"],
-    "baseline_boundary_f1": baseline_f1,
-    "restored_boundary_f1": restored_f1,
-    "improvement_points": (restored_f1 - baseline_f1) * 100,
-    "lexical_wer_vs_baseline": lexical_wer,
-}
-print(json.dumps(report, ensure_ascii=False, indent=2))
-if report["improvement_points"] < 10 or lexical_wer != 0:
-    raise SystemExit(1)
+    result = punctuate.restore(raw)
+    if not result.applied:
+        sys.exit(result.warning or "Punctuation không chạy")
+    expected = reference_boundaries(reference)
+    baseline_f1 = boundary_f1(sentence_boundaries(raw), expected)
+    restored_f1 = boundary_f1(sentence_boundaries(result.words), expected)
+    baseline_text = " ".join(lexical_tokens("".join(word.text for word in raw)))
+    restored_text = " ".join(lexical_tokens("".join(word.text for word in result.words)))
+    lexical_wer = wer(baseline_text, restored_text)
+    report = {
+        "revision": config.PUNCTUATION_MODEL["revision"],
+        "baseline_boundary_f1": baseline_f1,
+        "restored_boundary_f1": restored_f1,
+        "improvement_points": (restored_f1 - baseline_f1) * 100,
+        "lexical_wer_vs_baseline": lexical_wer,
+    }
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    if report["improvement_points"] < 10 or lexical_wer != 0:
+        raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    main()

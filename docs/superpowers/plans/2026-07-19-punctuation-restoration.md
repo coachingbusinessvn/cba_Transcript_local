@@ -1707,3 +1707,22 @@ any platform/fixture not actually verified.
 - [ ] PR-14 lists separate evidence for each target platform or explicit BLOCKED state.
 - [ ] No claim of v0.1.0 release/tag until the original Task 14 and this tracker's
       release gates are satisfied.
+
+## Amendments sau review (2026-07-23)
+
+Plan này đã thực thi xong; review hồi cứu tìm ra 5 defect, được sửa theo
+`docs/superpowers/plans/2026-07-23-punctuation-review-fixes.md`. Khi đọc lại plan gốc,
+lưu ý các điểm sau đã bị thay thế:
+
+- Task 3 Step 4: `_apply_case` không dùng `str.capitalize()` nữa — nó phá casing giữa từ
+  ("iPhone" → "Iphone") mà invariant `casefold()` không bắt được.
+- Task 2 Step 3: `_ensure_model_dir()` không return sớm khi cache "đã tải"; nó luôn băm
+  lại SHA-256 artifact một lần mỗi process trước khi đưa cho ONNX Runtime.
+- Task 4 Step 1: KHÔNG chèn `from app.transcribe import Word` vào giữa file test —
+  ruff bật `select = ["E", ...]` nên E402 sẽ đỏ ngay ở step lint của chính task đó.
+  Mọi import phải nằm ở block đầu file (đúng như Task 5 Step 1 đã dặn).
+- Task 4 Step 4: `_predict_actions` trả `tuple[list[str], int]` (actions, số chunk lỗi);
+  một chunk hỏng không được làm mất dấu câu cả file.
+- Task 5 Step 1: bỏ env `VITRANSCRIPT_MODEL_TEST` — marker `model` cộng
+  `addopts = "-m 'not model'"` đã là gate đủ.
+- Task 8 Step 1: test UI parse attribute bằng `html.parser`, không so chuỗi nguyên văn.

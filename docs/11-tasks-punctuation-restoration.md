@@ -22,7 +22,7 @@ bên dưới bảng. Không suy ra PASS của nền tảng khác.
 - Machine: macOS arm64 (local worktree `.worktrees/vitranscript-impl`)
 - Unit suite: `uv run pytest tests/ -v` (default excludes `@pytest.mark.model`)
 - Model smoke (online then offline):
-  - `VITRANSCRIPT_MODEL_TEST=1 uv run pytest -m model tests/test_punctuate.py::test_real_punctuation_model_contract -v` → PASS (~13s first run)
+  - `uv run pytest -m model tests/test_punctuate.py::test_real_punctuation_model_contract -v` → PASS (~13s first run)
   - `HF_HUB_OFFLINE=1 uv run python scripts/smoke_punctuation_model.py` → `"Hà Nội là thủ đô Việt Nam. Tôi yêu nó."`
 - Pin: revision `a7754d037f4a9e29f7f3224f27acb60149eab874`, sha256 `67278b23502bbd744538e2bd9a6748b61cce171cfba6c671c2e2a46f892166fa`
 - Dependency gate: no `torch` / `tensorflow` in `uv tree`
