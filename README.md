@@ -6,6 +6,8 @@ Mọi xử lý chạy **trên máy của bạn**. File ghi âm và transcript **
 
 Lần đầu dùng model cần mạng để tải model về máy; sau đó có thể chạy offline.
 
+> 📖 **Hướng dẫn đầy đủ (macOS & Windows), có khắc phục sự cố:** [`docs/HUONG-DAN-SU-DUNG.md`](docs/HUONG-DAN-SU-DUNG.md)
+
 ---
 
 ## Cài đặt
@@ -27,7 +29,7 @@ Lần đầu dùng model cần mạng để tải model về máy; sau đó có 
 ## Cách dùng
 
 1. Nhấp đúp **`run.command`** (Mac) hoặc **`run.bat`** (Windows).
-2. Trình duyệt sẽ mở giao diện ViTranscript (thường `http://127.0.0.1:8765`).
+2. Trình duyệt sẽ tự mở giao diện ViTranscript (địa chỉ dạng `http://127.0.0.1:8756`).
 3. **Chọn file** audio/video (mp3, m4a, wav, mp4, …).
 4. Tuỳ chọn: model, ngôn ngữ, bật/tắt phân biệt người nói, số người nói (0 = tự đoán), glossary.
 5. Bấm **Bắt đầu** và đợi thanh tiến trình hoàn tất.
@@ -129,7 +131,7 @@ Xóa **cả thư mục** trên = reset app (sẽ tải lại model lần sau).
 
 ### Cổng (port) bị bận
 
-Mặc định server dùng cổng **8765**. Nếu báo port đang dùng: đóng cửa sổ terminal/app ViTranscript cũ, hoặc tắt tiến trình đang giữ cổng đó rồi chạy lại `run.command` / `run.bat`.
+Server tự tìm cổng trống bắt đầu từ **8756** (8756–8805). Nếu địa chỉ tự mở không vào được: đọc dòng `ViTranscript đang chạy tại http://127.0.0.1:<port>` trong cửa sổ terminal/CMD và mở đúng địa chỉ đó. Muốn giải phóng cổng cũ: đóng cửa sổ terminal/app ViTranscript cũ rồi chạy lại `run.command` / `run.bat`.
 
 ### macOS Gatekeeper chặn `install.command` / `run.command`
 
