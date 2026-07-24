@@ -121,11 +121,11 @@ _Worktree chưa có code._
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
 
 **5 most recent commits (worktree):**
+- `88b676e docs: them huong dan su dung day du macOS + Windows, sua port README 8765->8756`
+- `cc44df9 docs: hook refresh danh sach commit gan nhat`
 - `49cbfaa docs: release notes v0.1.0-beta + cap nhat nghiem thu Task 14`
 - `5ae2b62 docs: refresh danh sach commit (hook) + sua so test 57 -> 66`
 - `3b83f6d merge: dua toan bo code ViTranscript + 6 review-fix vao main`
-- `434b290 docs: cap nhat so test sau final review fixes`
-- `e2b19ea fix: chi ghi manifest khi vua tai, them test gioi han 3 pass`
 <!-- status-block: end -->
 
 ---

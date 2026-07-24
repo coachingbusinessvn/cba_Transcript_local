@@ -73,11 +73,11 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 **5 commit gần nhất:**
 
+- `88b676e docs: them huong dan su dung day du macOS + Windows, sua port README 8765->8756`
+- `cc44df9 docs: hook refresh danh sach commit gan nhat`
 - `49cbfaa docs: release notes v0.1.0-beta + cap nhat nghiem thu Task 14`
 - `5ae2b62 docs: refresh danh sach commit (hook) + sua so test 57 -> 66`
 - `3b83f6d merge: dua toan bo code ViTranscript + 6 review-fix vao main`
-- `434b290 docs: cap nhat so test sau final review fixes`
-- `e2b19ea fix: chi ghi manifest khi vua tai, them test gioi han 3 pass`
 <!-- auto-update: end -->
 
 
@@ -141,11 +141,11 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 **5 commit gần nhất:**
 
+- `88b676e docs: them huong dan su dung day du macOS + Windows, sua port README 8765->8756`
+- `cc44df9 docs: hook refresh danh sach commit gan nhat`
 - `49cbfaa docs: release notes v0.1.0-beta + cap nhat nghiem thu Task 14`
 - `5ae2b62 docs: refresh danh sach commit (hook) + sua so test 57 -> 66`
 - `3b83f6d merge: dua toan bo code ViTranscript + 6 review-fix vao main`
-- `434b290 docs: cap nhat so test sau final review fixes`
-- `e2b19ea fix: chi ghi manifest khi vua tai, them test gioi han 3 pass`
 <!-- auto-update: end -->` trong `CLAUDE.md`
 2. Sửa block `<!-- status-block: start --> … <!-- status-block: end -->` trong `AGENTS.md`
 3. Commit cả 2 file cùng với code thay đổi trong **cùng 1 commit**
