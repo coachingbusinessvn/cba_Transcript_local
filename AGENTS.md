@@ -84,12 +84,12 @@ docs/
 ---
 
 <!-- status-block: start -->
-## Current status (2026-07-20)
+## Current status
 
 **Progress:** 17/21 tasks done 🟢 | 3 in-progress 🔵 | 1 not started ⚪
 
-**App modules in `.worktrees/vitranscript-impl/app/`:**
-_Worktree chưa có code._
+**App modules in `app/`:**
+`checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
 
 **Task table:**
 
@@ -119,13 +119,6 @@ _Worktree chưa có code._
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
-
-**5 most recent commits (worktree):**
-- `88b676e docs: them huong dan su dung day du macOS + Windows, sua port README 8765->8756`
-- `cc44df9 docs: hook refresh danh sach commit gan nhat`
-- `49cbfaa docs: release notes v0.1.0-beta + cap nhat nghiem thu Task 14`
-- `5ae2b62 docs: refresh danh sach commit (hook) + sua so test 57 -> 66`
-- `3b83f6d merge: dua toan bo code ViTranscript + 6 review-fix vao main`
 <!-- status-block: end -->
 
 ---

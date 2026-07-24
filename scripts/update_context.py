@@ -5,22 +5,14 @@ Chạy tự động khi commit vào main (qua git hook + Claude Code hook).
 Cũng có thể chạy thủ công: python3 scripts/update_context.py
 """
 import re
-import subprocess
 from pathlib import Path
 
 REPO = Path(__file__).parent.parent
 DOCS = REPO / "docs"
 CLAUDE_MD = REPO / "CLAUDE.md"
 AGENTS_MD = REPO / "AGENTS.md"
-WORKTREE = REPO / ".worktrees" / "vitranscript-impl"
-# Ưu tiên file tasks từ worktree (cập nhật hơn), fallback về main docs
-_wt_tasks = WORKTREE / "docs" / "03-tasks.md"
-TASKS_FILE = _wt_tasks if _wt_tasks.exists() else DOCS / "03-tasks.md"
-
-
-def git(*args) -> str:
-    r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True)
-    return r.stdout.strip()
+APP_DIR = REPO / "app"
+TASKS_FILE = DOCS / "03-tasks.md"
 
 
 def get_task_table() -> str:
@@ -51,19 +43,11 @@ def count_task_states() -> tuple[int, int, int]:
     return done, in_progress, todo
 
 
-def get_recent_commits(n: int = 5) -> str:
-    log = git("log", "--oneline", f"-{n}")
-    if not log:
-        return "_Chưa có commit._"
-    return "\n".join(f"- `{line}`" for line in log.splitlines())
-
-
-def get_worktree_app_files() -> str:
-    app_dir = WORKTREE / "app"
-    if not app_dir.exists():
-        return "_Worktree chưa có code._"
+def get_app_files() -> str:
+    if not APP_DIR.exists():
+        return "_Chưa có code trong app/._"
     files = sorted(
-        p.name for p in app_dir.iterdir()
+        p.name for p in APP_DIR.iterdir()
         if p.suffix == ".py" and p.name != "__init__.py"
     )
     return ", ".join(f"`{f}`" for f in files) if files else "_Trống._"
@@ -89,8 +73,7 @@ def build_status_section() -> str:
     total = done + in_progress + todo
     table = get_task_table()
     risks = get_open_risks()
-    commits = get_recent_commits()
-    files = get_worktree_app_files()
+    files = get_app_files()
 
     risks_block = f"\n\n**Rủi ro / việc treo đang mở:**\n{risks}" if risks.strip() else ""
     return f"""\
@@ -104,11 +87,7 @@ def build_status_section() -> str:
 
 **Bảng tasks (xem chi tiết: [docs/03-tasks.md](docs/03-tasks.md)):**
 
-{table}{risks_block}
-
-**5 commit gần nhất:**
-
-{commits}"""
+{table}{risks_block}"""
 
 
 # ── Cập nhật CLAUDE.md ────────────────────────────────────────────────────────
@@ -156,24 +135,20 @@ def build_agents_status_section() -> str:
     total = done + in_progress + todo
     table = get_task_table()
     risks = get_open_risks()
-    commits = get_recent_commits(5)
-    files = get_worktree_app_files()
+    files = get_app_files()
 
     risks_block = f"\n\n**Open risks / blockers:**\n{risks}" if risks.strip() else ""
     return f"""\
-## Current status (2026-07-20)
+## Current status
 
 **Progress:** {done}/{total} tasks done 🟢 | {in_progress} in-progress 🔵 | {todo} not started ⚪
 
-**App modules in `.worktrees/vitranscript-impl/app/`:**
+**App modules in `app/`:**
 {files}
 
 **Task table:**
 
-{table}{risks_block}
-
-**5 most recent commits (worktree):**
-{commits}"""
+{table}{risks_block}"""
 
 
 def update_agents_md():

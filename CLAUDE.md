@@ -40,7 +40,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 **Tiến độ:** 17/21 task xong 🟢 | 3 đang chạy 🔵 | 1 chưa làm ⚪
 
-**Module đã có trong `app/`:** _Worktree chưa có code._
+**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
 
 **Bảng tasks (xem chi tiết: [docs/03-tasks.md](docs/03-tasks.md)):**
 
@@ -70,14 +70,6 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
-
-**5 commit gần nhất:**
-
-- `88b676e docs: them huong dan su dung day du macOS + Windows, sua port README 8765->8756`
-- `cc44df9 docs: hook refresh danh sach commit gan nhat`
-- `49cbfaa docs: release notes v0.1.0-beta + cap nhat nghiem thu Task 14`
-- `5ae2b62 docs: refresh danh sach commit (hook) + sua so test 57 -> 66`
-- `3b83f6d merge: dua toan bo code ViTranscript + 6 review-fix vao main`
 <!-- auto-update: end -->
 
 
@@ -97,7 +89,6 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 - Trạng thái task thay đổi (⚪ → 🔵 → 🟢)
 - Thêm/xóa module, script, hoặc test file
 - Thêm constraint hoặc quyết định kỹ thuật mới
-- 5 commit gần nhất thay đổi (sau mỗi commit mới)
 - Rủi ro/blocker mới xuất hiện hoặc được giải quyết
 
 **Cách cập nhật:**
@@ -108,7 +99,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 **Tiến độ:** 17/21 task xong 🟢 | 3 đang chạy 🔵 | 1 chưa làm ⚪
 
-**Module đã có trong `app/`:** _Worktree chưa có code._
+**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
 
 **Bảng tasks (xem chi tiết: [docs/03-tasks.md](docs/03-tasks.md)):**
 
@@ -138,14 +129,6 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
-
-**5 commit gần nhất:**
-
-- `88b676e docs: them huong dan su dung day du macOS + Windows, sua port README 8765->8756`
-- `cc44df9 docs: hook refresh danh sach commit gan nhat`
-- `49cbfaa docs: release notes v0.1.0-beta + cap nhat nghiem thu Task 14`
-- `5ae2b62 docs: refresh danh sach commit (hook) + sua so test 57 -> 66`
-- `3b83f6d merge: dua toan bo code ViTranscript + 6 review-fix vao main`
 <!-- auto-update: end -->` trong `CLAUDE.md`
 2. Sửa block `<!-- status-block: start --> … <!-- status-block: end -->` trong `AGENTS.md`
 3. Commit cả 2 file cùng với code thay đổi trong **cùng 1 commit**
