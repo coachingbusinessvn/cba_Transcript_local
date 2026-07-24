@@ -55,7 +55,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 57 test) | 🟢 | 57 passed, 1 deselected |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
@@ -73,11 +73,11 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 **5 commit gần nhất:**
 
-- `b90fc98 docs: sua so unit test (8 -> so thuc te)`
-- `91a9fab docs: cap nhat trang thai sau hook tu dong`
-- `6dbfada docs: fix AGENTS.md va update_context.py`
-- `b3c69b1 docs: sua CLAUDE.md (rule section bi hook lam lon)`
-- `bd84367 docs: update CLAUDE.md + tao AGENTS.md day du voi rule tu cap nhat`
+- `3b83f6d merge: dua toan bo code ViTranscript + 6 review-fix vao main`
+- `434b290 docs: cap nhat so test sau final review fixes`
+- `e2b19ea fix: chi ghi manifest khi vua tai, them test gioi han 3 pass`
+- `4e6e810 docs: plan review-fixes va cap nhat so test trong CLAUDE.md`
+- `ba51b10 fix: eval boundary theo index va don gate test model`
 <!-- auto-update: end -->
 
 
@@ -123,7 +123,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 57 test) | 🟢 | 57 passed, 1 deselected |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
@@ -141,11 +141,11 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 **5 commit gần nhất:**
 
-- `b90fc98 docs: sua so unit test (8 -> so thuc te)`
-- `91a9fab docs: cap nhat trang thai sau hook tu dong`
-- `6dbfada docs: fix AGENTS.md va update_context.py`
-- `b3c69b1 docs: sua CLAUDE.md (rule section bi hook lam lon)`
-- `bd84367 docs: update CLAUDE.md + tao AGENTS.md day du voi rule tu cap nhat`
+- `3b83f6d merge: dua toan bo code ViTranscript + 6 review-fix vao main`
+- `434b290 docs: cap nhat so test sau final review fixes`
+- `e2b19ea fix: chi ghi manifest khi vua tai, them test gioi han 3 pass`
+- `4e6e810 docs: plan review-fixes va cap nhat so test trong CLAUDE.md`
+- `ba51b10 fix: eval boundary theo index va don gate test model`
 <!-- auto-update: end -->` trong `CLAUDE.md`
 2. Sửa block `<!-- status-block: start --> … <!-- status-block: end -->` trong `AGENTS.md`
 3. Commit cả 2 file cùng với code thay đổi trong **cùng 1 commit**
