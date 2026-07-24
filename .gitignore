@@ -8,9 +8,14 @@ __pycache__/
 
 # Dữ liệu đánh giá cá nhân (audio thật + transcript tay) — không đưa lên repo
 eval/sample.*
+eval/punctuation_words.json
+eval/punctuation_reference.txt
 
 # Git worktrees
 .worktrees/
 
 # Claude Code local overrides (không commit)
 .claude/settings.local.json
+
+# State tam cua superpowers skill (khong phai san pham)
+.superpowers/

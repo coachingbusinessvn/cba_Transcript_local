@@ -1,0 +1,42 @@
+[project]
+name = "vi-transcript"
+version = "0.1.0"
+description = "Ứng dụng local-first chuyển hội thoại tiếng Việt thành văn bản (transcript) với timestamp và phân biệt người nói"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "faster-whisper>=1.1.0",
+    "sherpa-onnx>=1.10.30",
+    # native libs (libonnxruntime etc.) live in this companion package (required by sherpa-onnx)
+    "sherpa-onnx-core>=1.10.30",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "python-multipart>=0.0.9",
+    "python-docx>=1.1.0",
+    "openpyxl>=3.1.2",
+    "rapidfuzz>=3.6",
+    "static-ffmpeg>=2.7",
+    "huggingface-hub>=0.23",
+    "numpy>=1.26",
+    "onnxruntime>=1.20,<2",
+    "tokenizers>=0.20,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.4", "jiwer>=3.0"]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+markers = [
+    "model: downloads/runs pinned model artifacts; excluded from the default suite",
+]
+addopts = "-m 'not model'"
+timeout = 60

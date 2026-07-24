@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ViTranscript</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --text: #1a1d21;
+      --muted: #5c6570;
+      --border: #d8dee6;
+      --accent: #1b6ef3;
+      --accent-hover: #1558c4;
+      --accent-soft: #e8f0fe;
+      --danger: #c62828;
+      --danger-bg: #fdecea;
+      --ok: #1b7f4a;
+      --shadow: 0 1px 3px rgba(16, 24, 40, 0.08);
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+    .wrap {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 28px 18px 64px;
+    }
+    header h1 {
+      margin: 0 0 4px;
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+    header p {
+      margin: 0 0 22px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 18px 18px 16px;
+      margin-bottom: 16px;
+    }
+    .card h2 {
+      margin: 0 0 12px;
+      font-size: 1.05rem;
+      font-weight: 650;
+    }
+    label {
+      display: block;
+      font-size: 0.88rem;
+      font-weight: 600;
+      margin: 0 0 6px;
+    }
+    .field { margin-bottom: 14px; }
+    .field:last-child { margin-bottom: 0; }
+    .hint {
+      color: var(--muted);
+      font-size: 0.82rem;
+      font-weight: 400;
+      margin-top: 4px;
+    }
+    select, input[type="number"], textarea, input[type="text"] {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 11px;
+      font: inherit;
+      background: #fff;
+      color: var(--text);
+    }
+    select:focus, input:focus, textarea:focus {
+      outline: 2px solid var(--accent-soft);
+      border-color: var(--accent);
+    }
+    textarea {
+      min-height: 110px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.88rem;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    @media (max-width: 560px) {
+      .row { grid-template-columns: 1fr; }
+    }
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+      margin-top: 4px;
+    }
+    .check input { width: auto; }
+    .drop {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 28px 16px;
+      text-align: center;
+      background: #fafbfc;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .drop:hover, .drop.dragover {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+    }
+    .drop strong { display: block; margin-bottom: 4px; }
+    .drop .filename {
+      margin-top: 10px;
+      color: var(--ok);
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .drop input[type="file"] { display: none; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn:hover:not(:disabled) { background: var(--accent-hover); }
+    .btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+    .btn.secondary {
+      background: #fff;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn.secondary:hover:not(:disabled) {
+      background: #f2f4f7;
+    }
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 4px;
+    }
+    .progress-wrap { display: none; }
+    .progress-wrap.show { display: block; }
+    .bar {
+      height: 12px;
+      background: #e8ecf1;
+      border-radius: 999px;
+      overflow: hidden;
+      margin: 8px 0;
+    }
+    .bar > i {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #1b6ef3, #4f8df7);
+      border-radius: 999px;
+      transition: width 0.25s ease;
+    }
+    .pct {
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .msg { color: var(--muted); font-size: 0.92rem; }
+    .error {
+      display: none;
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      background: var(--danger-bg);
+      color: var(--danger);
+      font-size: 0.92rem;
+      white-space: pre-wrap;
+    }
+    .error.show { display: block; }
+    .note {
+      margin-top: 10px; padding: 10px 12px; border-radius: 8px;
+      background: #fff8e6; color: #7a5b00; font-size: 14px; line-height: 1.5;
+    }
+    #results { display: none; }
+    #results.show { display: block; }
+    .speakers {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .speakers .item {
+      display: grid;
+      grid-template-columns: 110px 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+    @media (max-width: 480px) {
+      .speakers .item { grid-template-columns: 1fr; }
+    }
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      max-height: 420px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    th, td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #f0f3f7;
+      font-size: 0.82rem;
+      z-index: 1;
+    }
+    tr:last-child td { border-bottom: none; }
+    td.time {
+      white-space: nowrap;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      width: 1%;
+    }
+    td.spk { white-space: nowrap; width: 1%; font-weight: 600; }
+    .spk-select {
+      width: 100%; min-width: 148px; padding: 4px 26px 4px 8px; border-radius: 6px;
+      border: 1px solid #d5d9e0; background: #fff; color: var(--text);
+      font: inherit; font-size: 13px;
+      text-overflow: ellipsis;
+    }
+    .empty {
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding: 12px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>ViTranscript</h1>
+      <p>Chuyển hội thoại tiếng Việt thành văn bản — chạy hoàn toàn trên máy bạn.</p>
+    </header>
+
+    <section class="card">
+      <h2>1. Chọn file audio / video</h2>
+      <div class="drop" id="dropZone" tabindex="0" role="button" aria-label="Chọn file">
+        <strong>Kéo thả file vào đây</strong>
+        <div class="hint">hoặc bấm để chọn · mp3, m4a, wav, mp4, mov, …</div>
+        <div class="filename" id="fileName" hidden></div>
+        <input type="file" id="fileInput"
+          accept=".mp3,.m4a,.wav,.aac,.flac,.ogg,.wma,.opus,.mov,.mp4,.mkv,.avi,.webm,.m4v" />
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>2. Tùy chọn</h2>
+      <div class="field">
+        <label for="model">Model</label>
+        <select id="model"></select>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label for="language">Ngôn ngữ</label>
+          <select id="language">
+            <option value="vi">Tiếng Việt (vi)</option>
+            <option value="auto">Tự nhận diện (auto)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="numSpeakers">Số người nói</label>
+          <input type="number" id="numSpeakers" min="0" max="20" step="1" value="2" />
+          <div class="hint">Nên nhập đúng số người (vd. <strong>2</strong>). <code>0</code> = tự đoán (dễ tách quá nhiều trên file dài).</div>
+        </div>
+      </div>
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" id="punctuate" checked />
+          Tự chèn dấu câu (khuyên dùng cho PhoWhisper)
+        </label>
+        <div class="hint" id="punctuationHint">Lần đầu tải model dấu câu ~110 MB.</div>
+      </div>
+      <div class="field">
+        <label class="check">
+          <input type="checkbox" id="diarize" checked />
+          Phân biệt người nói
+        </label>
+      </div>
+      <div class="field">
+        <label for="glossary">Từ điển sửa lỗi / từ khóa (glossary)</label>
+        <textarea id="glossary"
+          placeholder="Mỗi dòng một mục.&#10;Sửa sai → đúng: nờ vi đi a => NVIDIA&#10;Từ khóa (hotword): Vinamilk"></textarea>
+        <div class="hint">Định dạng <code>sai =&gt; đúng</code> hoặc một từ khóa mỗi dòng, ví dụ <code>nờ vi đi a =&gt; NVIDIA</code> và <code>Vinamilk</code>.</div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>3. Chạy transcript</h2>
+      <div class="actions">
+        <button type="button" class="btn" id="startBtn">Bắt đầu transcript</button>
+      </div>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="msg"><span class="pct" id="pct">0%</span> — <span id="message">Đang chuẩn bị…</span></div>
+        <div class="bar"><i id="barFill"></i></div>
+      </div>
+      <div class="error" id="errorBox"></div>
+      <div class="note" id="noteBox" hidden></div>
+    </section>
+
+    <section class="card" id="results">
+      <h2>4. Kết quả</h2>
+      <div id="speakerSection" class="field">
+        <label>Đổi tên người nói</label>
+        <div class="speakers" id="speakerNames"></div>
+      </div>
+      <div class="field">
+        <label>Xem trước (tối đa 300 câu)</label>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Thời gian</th>
+                <th>Người nói</th>
+                <th>Nội dung</th>
+              </tr>
+            </thead>
+            <tbody id="previewBody"></tbody>
+          </table>
+        </div>
+        <div class="empty" id="previewEmpty" hidden>Không có câu nào.</div>
+      </div>
+      <div class="field">
+        <label>Xuất file</label>
+        <div class="actions">
+          <button type="button" class="btn secondary" data-fmt="docx">DOCX</button>
+          <button type="button" class="btn secondary" data-fmt="xlsx">XLSX</button>
+          <button type="button" class="btn secondary" data-fmt="srt">SRT</button>
+          <button type="button" class="btn secondary" data-fmt="txt">TXT</button>
+          <button type="button" class="btn secondary" id="audioBtn" hidden>Tải audio đã tách</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    (function () {
+      const $ = (id) => document.getElementById(id);
+      const dropZone = $("dropZone");
+      const fileInput = $("fileInput");
+      const fileNameEl = $("fileName");
+      const modelEl = $("model");
+      const languageEl = $("language");
+      const punctuateEl = $("punctuate");
+      const punctuationHintEl = $("punctuationHint");
+      const diarizeEl = $("diarize");
+      const numSpeakersEl = $("numSpeakers");
+      const glossaryEl = $("glossary");
+      const startBtn = $("startBtn");
+      const progressWrap = $("progressWrap");
+      const pctEl = $("pct");
+      const messageEl = $("message");
+      const barFill = $("barFill");
+      const errorBox = $("errorBox");
+      const noteBox = $("noteBox");
+      const results = $("results");
+      const speakerNamesEl = $("speakerNames");
+      const previewBody = $("previewBody");
+      const previewEmpty = $("previewEmpty");
+      const audioBtn = $("audioBtn");
+
+      let selectedFile = null;
+      let currentJobId = null;
+      let pollTimer = null;
+      let sentences = [];
+      let names = {};
+      let speakerIds = [];        // speaker phát hiện được — tính 1 lần tại showResults
+      let originalSpeakers = [];  // snapshot để tính override khi export
+
+      function showError(msg) {
+        errorBox.textContent = msg || "";
+        errorBox.classList.toggle("show", !!msg);
+      }
+
+      function showNote(msg) {
+        noteBox.textContent = msg || "";
+        noteBox.hidden = !msg;
+      }
+
+      function setProgress(percent, message) {
+        const p = Math.max(0, Math.min(100, Number(percent) || 0));
+        pctEl.textContent = p.toFixed(p % 1 ? 1 : 0) + "%";
+        barFill.style.width = p + "%";
+        if (message) messageEl.textContent = message;
+      }
+
+      function setRunning(running) {
+        startBtn.disabled = running;
+        progressWrap.classList.toggle("show", running || !!currentJobId);
+      }
+
+      function fmtTime(sec) {
+        const s = Math.max(0, Number(sec) || 0);
+        const h = Math.floor(s / 3600);
+        const m = Math.floor((s % 3600) / 60);
+        const ss = Math.floor(s % 60);
+        const pad = (n) => String(n).padStart(2, "0");
+        if (h > 0) return pad(h) + ":" + pad(m) + ":" + pad(ss);
+        return pad(m) + ":" + pad(ss);
+      }
+
+      function speakerLabel(idx) {
+        if (idx === null || idx === undefined) return "";
+        const key = String(idx);
+        const custom = (names[key] || "").trim();
+        if (custom) return custom;
+        return "Người nói " + (Number(idx) + 1);
+      }
+
+      function setFile(file) {
+        selectedFile = file || null;
+        if (selectedFile) {
+          fileNameEl.hidden = false;
+          fileNameEl.textContent = selectedFile.name;
+        } else {
+          fileNameEl.hidden = true;
+          fileNameEl.textContent = "";
+        }
+      }
+
+      dropZone.addEventListener("click", () => fileInput.click());
+      dropZone.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          fileInput.click();
+        }
+      });
+      fileInput.addEventListener("change", () => {
+        setFile(fileInput.files && fileInput.files[0] ? fileInput.files[0] : null);
+      });
+      ["dragenter", "dragover"].forEach((ev) => {
+        dropZone.addEventListener(ev, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.add("dragover");
+        });
+      });
+      ["dragleave", "drop"].forEach((ev) => {
+        dropZone.addEventListener(ev, (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dropZone.classList.remove("dragover");
+        });
+      });
+      dropZone.addEventListener("drop", (e) => {
+        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+        if (f) {
+          setFile(f);
+          try {
+            const dt = new DataTransfer();
+            dt.items.add(f);
+            fileInput.files = dt.files;
+          } catch (_) { /* ignore if DataTransfer unsupported */ }
+        }
+      });
+
+      async function loadMeta() {
+        const r = await fetch("/api/meta");
+        if (!r.ok) throw new Error("Không tải được /api/meta");
+        const data = await r.json();
+        modelEl.innerHTML = "";
+        (data.models || []).forEach((m) => {
+          const opt = document.createElement("option");
+          opt.value = m.key;
+          opt.textContent = m.label + " (" + m.size + ")" + (m.downloaded ? " ✓ đã tải" : "");
+          modelEl.appendChild(opt);
+        });
+        const settings = data.settings || {};
+        if (settings.model) modelEl.value = settings.model;
+        if (settings.language) languageEl.value = settings.language;
+        if (typeof settings.punctuate === "boolean") punctuateEl.checked = settings.punctuate;
+        const punctuationMeta = data.punctuation || {};
+        punctuationHintEl.textContent = punctuationMeta.downloaded
+          ? "Model dấu câu đã tải · chạy offline được."
+          : "Lần đầu tải model dấu câu ~110 MB; các lần sau chạy offline.";
+        glossaryEl.value = data.glossary || "";
+      }
+
+      function collectNames() {
+        const out = {};
+        speakerNamesEl.querySelectorAll("input[data-spk]").forEach((inp) => {
+          out[String(inp.dataset.spk)] = inp.value;
+        });
+        names = out;
+        return out;
+      }
+
+      function collectSpeakerOverrides() {
+        const out = {};
+        sentences.forEach((s, i) => {
+          if (s.speaker === null || s.speaker === undefined) return;
+          if (originalSpeakers[i] !== s.speaker) out[String(i)] = s.speaker;
+        });
+        return out;
+      }
+
+      function renderPreview() {
+        const list = sentences.slice(0, 300);
+        previewBody.innerHTML = "";
+        previewEmpty.hidden = list.length > 0;
+        list.forEach((s) => {
+          const tr = document.createElement("tr");
+          const tdT = document.createElement("td");
+          tdT.className = "time";
+          tdT.textContent = fmtTime(s.start) + " – " + fmtTime(s.end);
+          const tdS = document.createElement("td");
+          tdS.className = "spk";
+          if (s.speaker === null || s.speaker === undefined || !speakerIds.length) {
+            tdS.textContent = speakerLabel(s.speaker);
+          } else {
+            const sel = document.createElement("select");
+            sel.className = "spk-select";
+            speakerIds.forEach((id) => {
+              const opt = document.createElement("option");
+              opt.value = String(id);
+              opt.textContent = speakerLabel(id);
+              if (id === s.speaker) opt.selected = true;
+              sel.appendChild(opt);
+            });
+            sel.addEventListener("change", () => { s.speaker = Number(sel.value); });
+            tdS.appendChild(sel);
+          }
+          const tdX = document.createElement("td");
+          tdX.textContent = s.text || "";
+          tr.appendChild(tdT);
+          tr.appendChild(tdS);
+          tr.appendChild(tdX);
+          previewBody.appendChild(tr);
+        });
+      }
+
+      function renderSpeakers() {
+        const ids = [];
+        const seen = new Set();
+        sentences.forEach((s) => {
+          if (s.speaker === null || s.speaker === undefined) return;
+          const key = String(s.speaker);
+          if (!seen.has(key)) {
+            seen.add(key);
+            ids.push(s.speaker);
+          }
+        });
+        ids.sort((a, b) => Number(a) - Number(b));
+        speakerNamesEl.innerHTML = "";
+        if (!ids.length) {
+          $("speakerSection").hidden = true;
+          return;
+        }
+        $("speakerSection").hidden = false;
+        ids.forEach((id) => {
+          const key = String(id);
+          const row = document.createElement("div");
+          row.className = "item";
+          const lab = document.createElement("label");
+          lab.textContent = "ID " + key;
+          const inp = document.createElement("input");
+          inp.type = "text";
+          inp.dataset.spk = key;
+          inp.placeholder = "Người nói " + (Number(id) + 1);
+          inp.value = names[key] || "";
+          inp.addEventListener("input", () => {
+            collectNames();
+            renderPreview();
+          });
+          row.appendChild(lab);
+          row.appendChild(inp);
+          speakerNamesEl.appendChild(row);
+        });
+      }
+
+      function showResults(job) {
+        const result = job.result || {};
+        sentences = result.sentences || [];
+        originalSpeakers = sentences.map((s) => s.speaker);
+        const seenIds = new Set();
+        speakerIds = [];
+        sentences.forEach((s) => {
+          if (s.speaker === null || s.speaker === undefined) return;
+          if (!seenIds.has(s.speaker)) { seenIds.add(s.speaker); speakerIds.push(s.speaker); }
+        });
+        speakerIds.sort((a, b) => Number(a) - Number(b));
+        names = {};
+        results.classList.add("show");
+        renderSpeakers();
+        renderPreview();
+        audioBtn.hidden = !result.extracted_audio;
+      }
+
+      function stopPoll() {
+        if (pollTimer) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      }
+
+      let pollFailCount = 0;
+
+      async function pollJob() {
+        if (!currentJobId) return;
+        try {
+          const r = await fetch("/api/jobs/" + currentJobId);
+          if (!r.ok) {
+            const t = await r.text();
+            throw new Error(t || ("HTTP " + r.status));
+          }
+          pollFailCount = 0;
+          const job = await r.json();
+          setProgress(job.percent, job.message || "");
+          showNote(job.note);
+          if (job.status === "running") return;
+          stopPoll();
+          setRunning(false);
+          if (job.status === "error") {
+            showError(job.message || "Lỗi không xác định");
+            if (job.result && job.result.sentences && job.result.sentences.length) {
+              showResults(job);  // kết quả một phần khôi phục từ checkpoint
+            }
+            return;
+          }
+          if (job.status === "done") {
+            setProgress(100, job.message || "Hoàn tất!");
+            showResults(job);
+          }
+        } catch (e) {
+          pollFailCount += 1;
+          const msg = String(e.message || e);
+          // Mạng chập chờn / server bận CPU: thử lại vài lần trước khi báo lỗi
+          if (pollFailCount < 5 && (msg.includes("Failed to fetch") || msg.includes("NetworkError") || msg.includes("fetch"))) {
+            setProgress(null, "Mất kết nối tạm thời, đang thử lại… (" + pollFailCount + "/5)");
+            return;
+          }
+          stopPoll();
+          setRunning(false);
+          showError(
+            "Mất kết nối tới server (có thể process đã dừng giữa chừng khi xử lý file dài). " +
+            "Hãy mở lại app (run.command) rồi bấm Bắt đầu lại — model đã tải sẵn nên nhanh hơn. Chi tiết: " +
+            msg
+          );
+        }
+      }
+
+      startBtn.addEventListener("click", async () => {
+        showError("");
+        showNote(null);
+        results.classList.remove("show");
+        sentences = [];
+        names = {};
+        pollFailCount = 0;
+        if (!selectedFile) {
+          showError("Vui lòng chọn file audio hoặc video trước.");
+          return;
+        }
+        const fd = new FormData();
+        fd.append("file", selectedFile, selectedFile.name);
+        fd.append("model", modelEl.value);
+        fd.append("language", languageEl.value);
+        fd.append("punctuate", punctuateEl.checked ? "true" : "false");
+        fd.append("diarize", diarizeEl.checked ? "true" : "false");
+        fd.append("num_speakers", String(Number(numSpeakersEl.value) || 0));
+        fd.append("glossary", glossaryEl.value || "");
+
+        setRunning(true);
+        setProgress(0, "Đang gửi file…");
+        progressWrap.classList.add("show");
+        stopPoll();
+        currentJobId = null;
+
+        try {
+          const r = await fetch("/api/jobs", { method: "POST", body: fd });
+          if (r.status === 409) {
+            let detail = "Đang có job khác chạy. Vui lòng đợi xong rồi thử lại.";
+            try {
+              const j = await r.json();
+              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+            } catch (_) {}
+            showError(detail);
+            setRunning(false);
+            return;
+          }
+          if (!r.ok) {
+            let detail = "Không tạo được job (HTTP " + r.status + ")";
+            try {
+              const j = await r.json();
+              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+            } catch (_) {}
+            showError(detail);
+            setRunning(false);
+            return;
+          }
+          const data = await r.json();
+          currentJobId = data.job_id;
+          setProgress(0, "Đang chuẩn bị…");
+          pollTimer = setInterval(pollJob, 1200);
+          pollJob();
+        } catch (e) {
+          showError("Lỗi gửi file: " + (e.message || e));
+          setRunning(false);
+        }
+      });
+
+      async function exportFmt(fmt) {
+        if (!currentJobId) return;
+        showError("");
+        const body = { format: fmt, names: collectNames(), speakers: collectSpeakerOverrides() };
+        try {
+          const r = await fetch("/api/jobs/" + currentJobId + "/export", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          if (!r.ok) {
+            let detail = "Xuất file thất bại (HTTP " + r.status + ")";
+            try {
+              const j = await r.json();
+              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+            } catch (_) {}
+            showError(detail);
+            return;
+          }
+          const blob = await r.blob();
+          let filename = "transcript." + fmt;
+          const cd = r.headers.get("Content-Disposition") || r.headers.get("content-disposition");
+          if (cd) {
+            const m = /filename\*?=(?:UTF-8''|")?([^";]+)"?/i.exec(cd);
+            if (m && m[1]) {
+              try { filename = decodeURIComponent(m[1].replace(/"/g, "")); }
+              catch (_) { filename = m[1].replace(/"/g, ""); }
+            }
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          showError("Lỗi xuất file: " + (e.message || e));
+        }
+      }
+
+      document.querySelectorAll("[data-fmt]").forEach((btn) => {
+        btn.addEventListener("click", () => exportFmt(btn.getAttribute("data-fmt")));
+      });
+
+      audioBtn.addEventListener("click", async () => {
+        if (!currentJobId) return;
+        showError("");
+        try {
+          const r = await fetch("/api/jobs/" + currentJobId + "/audio");
+          if (!r.ok) {
+            let detail = "Không tải được audio (HTTP " + r.status + ")";
+            try {
+              const j = await r.json();
+              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+            } catch (_) {}
+            showError(detail);
+            return;
+          }
+          const blob = await r.blob();
+          let filename = "audio.m4a";
+          const cd = r.headers.get("Content-Disposition") || r.headers.get("content-disposition");
+          if (cd) {
+            const m = /filename\*?=(?:UTF-8''|")?([^";]+)"?/i.exec(cd);
+            if (m && m[1]) {
+              try { filename = decodeURIComponent(m[1].replace(/"/g, "")); }
+              catch (_) { filename = m[1].replace(/"/g, ""); }
+            }
+          }
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = filename;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          URL.revokeObjectURL(url);
+        } catch (e) {
+          showError("Lỗi tải audio: " + (e.message || e));
+        }
+      });
+
+      document.addEventListener("DOMContentLoaded", () => {
+        loadMeta().catch((e) => showError("Không tải được cấu hình: " + (e.message || e)));
+      });
+    })();
+  </script>
+</body>
+</html>

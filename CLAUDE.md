@@ -11,11 +11,15 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
   01-bai-toan.md        # Bài toán, quyết định kỹ thuật đã chốt, tiêu chí nghiệm thu
   02-plan.md            # Plan chi tiết từng task (code đầy đủ, interface, verify steps)
   03-tasks.md           # Bảng theo dõi trạng thái (xong/đang làm/chưa làm)
-.worktrees/
-  vitranscript-impl/    # Worktree thực thi — TOÀN BỘ CODE NẰM Ở ĐÂY
+app/                    # Code ứng dụng (config, media, transcribe, diarize, pipeline, server…)
+tests/                  # Unit test (test_core.py, test_punctuate.py)
+scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_punctuation_model.py
 ```
 
-**Khi làm việc với code:** luôn `cd .worktrees/vitranscript-impl` hoặc dùng đường dẫn tuyệt đối vào worktree đó.
+> Trước đây code nằm ở worktree `.worktrees/vitranscript-impl/`; từ bản merge 2026-07-24
+> toàn bộ code đã gộp vào chính repo này. Vẫn có thể dùng worktree để phát triển tách biệt.
+
+**Khi làm việc với code:** làm trực tiếp ở repo root (hoặc trong worktree phát triển nếu cần cô lập).
 
 ## Stack kỹ thuật
 
@@ -153,7 +157,7 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
 Mỗi task: code → `uv run ruff check .` sạch → verify → cập nhật CLAUDE.md + AGENTS.md → `git commit`.
 Commit message kết thúc bằng: `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
 
-## Lệnh hay dùng (chạy từ `.worktrees/vitranscript-impl`)
+## Lệnh hay dùng (chạy từ repo root)
 
 ```bash
 uv sync                                          # cài dependencies
