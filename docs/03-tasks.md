@@ -21,14 +21,14 @@
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 57 test) | 🟢 | 57 passed, 1 deselected |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
-| 14 | Nghiệm thu 6 tiêu chí + tag `v0.1.0` | 🔵 | Nghiệm thu một phần — chưa gắn tag `v0.1.0` (thiếu máy sạch / file dài / WER) |
+| 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
@@ -38,15 +38,19 @@
 | phowhisper-small | — | — | Cần `eval/sample.*` + `eval/sample.txt` |
 | large-v3-turbo | — | — | Cần `eval/sample.*` + `eval/sample.txt` |
 
-## Kết quả nghiệm thu (Task 14 — điền khi chạy)
+## Kết quả nghiệm thu (Task 14 — cập nhật 2026-07-24, mốc beta)
+
+> Phát hành `v0.1.0-beta` với các mục PARTIAL/BLOCKED còn mở: beta chính là cách thu
+> thập dữ liệu file-dài, offline thực địa và WER từ người dùng thật. GA `v0.1.0` chỉ
+> gắn khi đủ 6 tiêu chí PASS trên máy sạch (gồm Windows).
 
 | Tiêu chí | Kết quả | Ghi chú |
 |---|---|---|
-| 1. Cài trên máy sạch không lỗi | PARTIAL | Script `install.command`/`install.bat` có sẵn; `uv sync` pass trên máy dev — chưa thử máy sạch / Windows |
-| 2. `run` tự mở browser + UI tiếng Việt | PASS (dev) | `TestClient` GET `/` + `/api/meta` OK; `main()` mở browser sau 1.5s |
+| 1. Cài trên máy sạch không lỗi | PARTIAL | `uv sync` pass trên máy dev macOS arm64; **chưa thử máy sạch, Windows chưa chạy `install.bat` lần nào** |
+| 2. `run` tự mở browser + UI tiếng Việt | PASS | `TestClient` GET `/api/meta` → 200 (2026-07-24); `main()` mở browser sau 1.5s |
 | 3. File dài → DOCX/XLSX đủ timestamp, người nói, câu | PARTIAL | Smoke E2E (audio ngắn `say` + tiny) tạo DOCX/XLSX; chưa thử file ~30 phút |
 | 4. Glossary sửa đúng từ khai báo | PASS | Unit tests exact + fuzzy (`NVIDIA`, `Vinamilk`) |
-| 5. Chạy offline sau lần tải model đầu | — | Chưa tắt mạng thử có hệ thống |
+| 5. Chạy offline sau lần tải model đầu | PARTIAL | Smoke dấu câu chạy với `HF_HUB_OFFLINE=1` OK; chưa tắt mạng thử full pipeline có hệ thống |
 | 6. WER trên audio mẫu thật ≤ 30% | BLOCKED | Chờ người dùng cung cấp `eval/sample.*` + `sample.txt` |
 
 ## Việc treo / rủi ro đang mở
