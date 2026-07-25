@@ -138,8 +138,8 @@ def test_restore_keeps_count_timestamps_input_and_blocks_word_edits(monkeypatch)
     original = [Word(0.0, 0.5, " xin"), Word(0.5, 1.0, " chào")]
     before = _word_tuples(original)
     calls = iter([
-        ["$TRANSFORM_CASE_CAPITAL", "$APPEND_."],
-        ["$KEEP", "$KEEP"],
+        (["$TRANSFORM_CASE_CAPITAL", "$APPEND_."], 0),
+        (["$KEEP", "$KEEP"], 0),
     ])
     monkeypatch.setattr(punctuate, "_load_runtime", lambda: object())
     monkeypatch.setattr(
@@ -156,8 +156,8 @@ def test_restore_preserves_existing_punctuation_and_multi_token_word(monkeypatch
 
     words = [Word(0.0, 2.0, " hà nội, việt nam")]
     calls = iter([
-        ["$TRANSFORM_CASE_CAPITAL", "$APPEND_.", "$TRANSFORM_CASE_CAPITAL", "$KEEP"],
-        ["$KEEP", "$KEEP", "$KEEP", "$KEEP"],
+        (["$TRANSFORM_CASE_CAPITAL", "$APPEND_.", "$TRANSFORM_CASE_CAPITAL", "$KEEP"], 0),
+        (["$KEEP", "$KEEP", "$KEEP", "$KEEP"], 0),
     ])
     monkeypatch.setattr(punctuate, "_load_runtime", lambda: object())
     monkeypatch.setattr(
@@ -191,7 +191,7 @@ def test_restore_falls_back_when_final_invariant_breaks(monkeypatch):
     monkeypatch.setattr(
         punctuate,
         "_predict_actions",
-        lambda pieces, runtime, progress_cb=None: ["$KEEP"],
+        lambda pieces, runtime, progress_cb=None: (["$KEEP"], 0),
     )
     monkeypatch.setattr(
         punctuate,
@@ -257,7 +257,9 @@ def test_predict_actions_builds_word_offsets_for_onnx():
     ])
     session = Session()
     runtime = punctuate._Runtime(session, Tokenizer(), punctuate._EXPECTED_LABELS)
-    assert punctuate._predict_actions(pieces, runtime) == ["$APPEND_.", "$KEEP"]
+    actions, failed = punctuate._predict_actions(pieces, runtime)
+    assert actions == ["$APPEND_.", "$KEEP"]
+    assert failed == 0
     assert session.feeds["input_offsets"].tolist() == [[1, 2]]
 
 
@@ -397,11 +399,11 @@ def test_create_job_passes_and_persists_punctuate(monkeypatch, tmp_path):
 
 
 def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_path):
-    from app import pipeline, server
+    from app import config, pipeline, server
 
     job_id = "punctwarn001"
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
     server.JOBS[job_id] = {"status": "running", "note": "Đã tắt diarization."}
-    monkeypatch.setattr(server, "_save_job", lambda *args: None)
     monkeypatch.setattr(
         pipeline,
         "run",
@@ -417,12 +419,14 @@ def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_p
         "model": "phowhisper-small", "language": "vi", "diarize": False,
         "punctuate": True, "num_speakers": 0, "glossary": "",
     })
-    assert server.JOBS[job_id]["status"] == "done"
-    assert server.JOBS[job_id]["note"].splitlines() == [
+    # Job đã kết thúc: không còn trong RAM, nguồn chân lý là status.json
+    assert job_id not in server.JOBS
+    job = server._get_job(job_id)
+    assert job["status"] == "done"
+    assert job["note"].splitlines() == [
         "Đã tắt diarization.",
         "Không thể chạy model dấu câu; transcript gốc vẫn được giữ nguyên.",
     ]
-    server.JOBS.pop(job_id, None)
 
 
 def test_ui_contains_punctuation_checkbox_and_form_contract():
@@ -435,3 +439,59 @@ def test_ui_contains_punctuation_checkbox_and_form_contract():
     assert "settings.punctuate" in html
     assert "data.punctuation" in html
     assert "punctuationMeta.downloaded" in html
+
+
+def test_predict_actions_skips_only_the_failing_chunk(monkeypatch):
+    from app import punctuate
+
+    pieces = [
+        punctuate._Piece(word_index=i, span_index=0, model_core=f"w{i}",
+                         output_core=f"w{i}", suffix="")
+        for i in range(60)
+    ]
+    calls = []
+
+    def fake_encode(runtime, chunk):
+        calls.append(len(chunk))
+        if len(calls) == 1:
+            raise KeyError("token bi tokenizer nuot")
+        return {}
+
+    class FakeSession:
+        def run(self, names, feeds):
+            import numpy as np
+            # chunk thu hai: 24 vi tri (36..60), tra ve $APPEND_. cho tat ca
+            return [np.tile(np.eye(len(punctuate._EXPECTED_LABELS))[3], (24, 1))[None, ...]]
+
+    runtime = punctuate._Runtime(
+        session=FakeSession(), tokenizer=object(), labels=punctuate._EXPECTED_LABELS
+    )
+    monkeypatch.setattr(punctuate, "_encode_chunk", fake_encode)
+
+    actions, failed = punctuate._predict_actions(pieces, runtime)
+
+    assert failed == 1
+    assert len(actions) == 60
+    assert actions[0] == "$KEEP"        # chunk loi -> giu nguyen
+    assert actions[59] == "$APPEND_."   # chunk lanh van duoc ap dung
+
+
+def test_predict_actions_raises_when_every_chunk_fails(monkeypatch):
+    from app import punctuate
+
+    pieces = [
+        punctuate._Piece(word_index=i, span_index=0, model_core=f"w{i}",
+                         output_core=f"w{i}", suffix="")
+        for i in range(60)
+    ]
+
+    def always_fail(runtime, chunk):
+        raise KeyError("hong")
+
+    monkeypatch.setattr(punctuate, "_encode_chunk", always_fail)
+    runtime = punctuate._Runtime(
+        session=object(), tokenizer=object(), labels=punctuate._EXPECTED_LABELS
+    )
+
+    with pytest.raises(RuntimeError):
+        punctuate._predict_actions(pieces, runtime)

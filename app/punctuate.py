@@ -1,6 +1,5 @@
 """Phục hồi dấu câu tiếng Việt bằng ViBERT-CAPU ONNX, best-effort."""
 
-import hashlib
 import json
 import logging
 import os
@@ -36,14 +35,6 @@ def _snapshot_download(**kwargs):
     return snapshot_download(**kwargs)
 
 
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as f:
-        while chunk := f.read(1 << 20):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def _ensure_model_dir() -> Path:
     root = config.punctuation_dir()
     if config.punctuation_is_downloaded():
@@ -58,7 +49,7 @@ def _ensure_model_dir() -> Path:
     model_path = root / config.PUNCTUATION_MODEL["filename"]
     if model_path.stat().st_size != config.PUNCTUATION_MODEL["size"]:
         raise RuntimeError("Model dấu câu sai kích thước")
-    actual_hash = _sha256(model_path)
+    actual_hash = config.sha256_file(model_path)
     if actual_hash != config.PUNCTUATION_MODEL["sha256"]:
         raise RuntimeError("Model dấu câu sai SHA-256")
     for relative in _REQUIRED_FILES:
@@ -177,6 +168,9 @@ log = logging.getLogger("vitranscript")
 _TARGET_PUNCTUATION = ".,:?"
 _SPAN_RE = re.compile(r"\s+|[^\s]+")
 _WARNING = "Không thể chạy model dấu câu; transcript gốc vẫn được giữ nguyên."
+_PARTIAL_WARNING = (
+    "Một số đoạn không phục hồi được dấu câu; các đoạn còn lại vẫn được xử lý."
+)
 
 
 @dataclass
@@ -289,21 +283,38 @@ def _predict_actions(
     pieces: list[_Piece],
     runtime: _Runtime,
     progress_cb: Callable[[float], None] | None = None,
-) -> list[str]:
+) -> tuple[list[str], int]:
     predictions = []
     furthest = 0
-    for start, end in _chunk_ranges(len(pieces)):
-        feeds = _encode_chunk(runtime, pieces[start:end])
-        logits = runtime.session.run(["logits", "detect_logits"], feeds)[0]
-        label_ids = np.argmax(logits[0], axis=-1).tolist()
-        actions = [runtime.labels[index] for index in label_ids]
-        if len(actions) != end - start:
-            raise RuntimeError("Model dấu câu trả sai số word")
+    failed = 0
+    ranges = _chunk_ranges(len(pieces))
+    for start, end in ranges:
+        try:
+            feeds = _encode_chunk(runtime, pieces[start:end])
+            logits = runtime.session.run(["logits", "detect_logits"], feeds)[0]
+            label_ids = np.argmax(logits[0], axis=-1).tolist()
+            actions = [runtime.labels[index] for index in label_ids]
+            if len(actions) != end - start:
+                raise RuntimeError("Model dấu câu trả sai số word")
+        except Exception as e:
+            # Một chunk hỏng (ví dụ tokenizer nuốt trọn một token lạ) không được
+            # làm mất dấu câu của cả file — _choose_overlapping mặc định $KEEP.
+            # File dài có thể có hàng nghìn chunk (stride 36): chỉ log traceback
+            # đầy đủ cho chunk lỗi đầu tiên, các chunk sau chỉ log 1 dòng thông
+            # điệp — tránh làm ngập console người dùng đang theo dõi.
+            if failed == 0:
+                log.exception("Bỏ qua chunk dấu câu %d-%d", start, end)
+            else:
+                log.warning("Bỏ qua chunk dấu câu %d-%d: %s", start, end, e)
+            failed += 1
+            continue
         predictions.append((start, end, actions))
         furthest = max(furthest, end)
         if progress_cb:
             progress_cb(furthest / len(pieces))
-    return _choose_overlapping(len(pieces), predictions)
+    if ranges and failed == len(ranges):
+        raise RuntimeError("Toàn bộ chunk dấu câu đều lỗi")
+    return _choose_overlapping(len(pieces), predictions), failed
 
 
 def restore(
@@ -327,10 +338,12 @@ def restore(
             if progress_cb:
                 progress_cb(last_progress)
 
+        failed_chunks = 0
         for iteration in range(3):
-            actions = _predict_actions(
+            actions, failed = _predict_actions(
                 pieces, runtime, monotonic if iteration == 0 else None
             )
+            failed_chunks = max(failed_chunks, failed)
             changed = False
             for piece, action in zip(pieces, actions, strict=True):
                 changed = _apply_safe_action(piece, action) or changed
@@ -341,7 +354,9 @@ def restore(
             raise RuntimeError("Invariant punctuation bị vi phạm")
         if progress_cb:
             progress_cb(1.0)
-        return PunctuationResult(restored, True, None)
+        return PunctuationResult(
+            restored, True, _PARTIAL_WARNING if failed_chunks else None
+        )
     except Exception:
         log.exception("Không thể phục hồi dấu câu")
         return PunctuationResult(original, False, _WARNING)

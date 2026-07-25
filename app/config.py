@@ -1,4 +1,5 @@
 """Cấu hình chung: đường dẫn dữ liệu, danh sách model, settings người dùng."""
+import hashlib
 import json
 import os
 import sys
@@ -51,6 +52,15 @@ DEFAULT_SETTINGS = {
     "beam_size": 5,
     "punctuate": True,
 }
+
+
+def sha256_file(path: Path) -> str:
+    """SHA-256 của file, đọc theo khối 1 MB (model có thể vài trăm MB)."""
+    digest = hashlib.sha256()
+    with path.open("rb") as f:
+        while chunk := f.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def data_dir() -> Path:

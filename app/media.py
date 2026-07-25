@@ -48,9 +48,19 @@ def duration_seconds(path: Path) -> float | None:
         return None
 
 
+# 1 giờ: dư cho file 4h convert trên CPU yếu, nhưng chặn được ffmpeg treo vĩnh viễn.
+_FFMPEG_TIMEOUT = 3600
+
+
 def _run_ffmpeg(args: list[str]) -> None:
     cmd = [ffmpeg_path(), "-hide_banner", "-y", *args]
-    proc = subprocess.run(cmd, capture_output=True, text=True)
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=_FFMPEG_TIMEOUT)
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(
+            f"ffmpeg chạy quá {_FFMPEG_TIMEOUT // 60} phút mà chưa xong — đã dừng. "
+            "File có thể bị hỏng."
+        ) from e
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg lỗi: {proc.stderr[-2000:]}")
 
@@ -106,6 +116,14 @@ def read_wav16k_float32(wav_path: Path, _chunk_frames: int = 960_000):
         while pos < n:
             data = w.readframes(min(_chunk_frames, n - pos))
             block = np.frombuffer(data, dtype=np.int16)
+            if len(block) == 0:
+                # Header khai nhiều frame hơn dữ liệu thực (file bị cắt dở).
+                # Không thoát ở đây thì pos đứng yên và vòng lặp chạy mãi.
+                # .copy(): out[:pos] là view — nếu giữ view thì mảng gốc (có thể
+                # rất lớn, vd header khai 4h nhưng data thực chỉ 1 phút) vẫn bị
+                # pin trong bộ nhớ dù kết quả trả về nhỏ hơn nhiều.
+                out = out[:pos].copy()
+                break
             out[pos : pos + len(block)] = block
             pos += len(block)
     out /= 32768.0  # in-place, không tạo mảng mới

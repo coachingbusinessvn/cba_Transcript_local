@@ -25,13 +25,15 @@ def load_model(model_key: str):
     from faster_whisper import WhisperModel
 
     source = config.MODEL_REGISTRY[model_key]["source"]
+    # Nhả model cũ TRƯỚC khi cấp phát model mới: nếu clear() sau, đỉnh RAM là
+    # tổng hai model (đổi từ Large ~3GB sang model khác sẽ đội gấp đôi).
+    _MODEL_CACHE.clear()
     model = WhisperModel(
         source,
         device="cpu",
         compute_type="int8",
         download_root=str(config.models_dir()),
     )
-    _MODEL_CACHE.clear()  # chỉ giữ 1 model trong RAM (máy CPU yếu)
     _MODEL_CACHE[model_key] = model
     return model
 
