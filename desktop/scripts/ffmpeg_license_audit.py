@@ -41,21 +41,27 @@ def sha256_file(path: Path | str) -> str:
 
 
 def classify_configuration(configuration: str) -> str:
-    """Classify ffmpeg configure flags.
+    """Classify ffmpeg configure flags into a concrete license kind.
 
     Order is intentional and must not drift between shells:
     1. --enable-nonfree → NONFREE (unconditional reject by callers)
-    2. --enable-gpl (and not --disable-gpl) → GPL
-    3. else → LGPL
+    2. --enable-gpl (and not --disable-gpl):
+       - + --enable-version3 → GPLv3
+       - else → GPLv2
+    3. else (LGPL family):
+       - + --enable-version3 → LGPLv3
+       - else → LGPLv2.1
     """
     cfg_l = (configuration or "").lower()
     if re.search(r"--enable-nonfree\b", cfg_l):
         return "NONFREE"
-    if re.search(r"--enable-gpl\b", cfg_l) and not re.search(r"--disable-gpl\b", cfg_l):
-        return "GPL"
-    if re.search(r"--enable-version3\b", cfg_l) and re.search(r"--enable-gpl\b", cfg_l):
-        return "GPL"
-    return "LGPL"
+    version3 = bool(re.search(r"--enable-version3\b", cfg_l))
+    gpl = bool(
+        re.search(r"--enable-gpl\b", cfg_l) and not re.search(r"--disable-gpl\b", cfg_l)
+    )
+    if gpl:
+        return "GPLv3" if version3 else "GPLv2"
+    return "LGPLv3" if version3 else "LGPLv2.1"
 
 
 def parse_ffmpeg_version(path: str) -> tuple[str, str]:
@@ -133,6 +139,18 @@ def _static_ffmpeg_provenance() -> dict:
     }
 
 
+# Map classify_configuration() output → bundled COPYING.* filename.
+_LICENSE_FILE_MAP = {
+    "GPLv2": "COPYING.GPLv2",
+    "GPLv3": "COPYING.GPLv3",
+    "LGPLv2.1": "COPYING.LGPLv2.1",
+    "LGPLv3": "COPYING.LGPLv3",
+    # Backward-compat aliases if older resolve meta still says GPL/LGPL.
+    "GPL": "COPYING.GPLv3",
+    "LGPL": "COPYING.LGPLv2.1",
+}
+
+
 def stage_license_artifacts(
     out_dir: Path,
     license_kind: str,
@@ -142,12 +160,14 @@ def stage_license_artifacts(
     notices = out_dir / "ffmpeg-notices"
     notices.mkdir(parents=True, exist_ok=True)
 
-    if license_kind == "GPL":
-        src_license = NOTICES_SRC / "COPYING.GPLv3"
-        license_name = "COPYING.GPLv3"
-    else:
-        src_license = NOTICES_SRC / "COPYING.LGPLv2.1"
-        license_name = "COPYING.LGPLv2.1"
+    license_name = _LICENSE_FILE_MAP.get(license_kind)
+    if not license_name:
+        print(
+            f"ERROR: unknown ffmpeg license kind for staging: {license_kind!r}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    src_license = NOTICES_SRC / license_name
 
     if not src_license.is_file():
         print(f"ERROR: missing bundled license text: {src_license}", file=sys.stderr)

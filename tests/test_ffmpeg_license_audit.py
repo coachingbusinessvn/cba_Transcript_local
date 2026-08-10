@@ -33,26 +33,61 @@ def test_nonfree_alone(audit):
     assert audit.classify_configuration("--enable-nonfree") == "NONFREE"
 
 
-def test_gpl(audit):
-    assert audit.classify_configuration("--enable-gpl --enable-libx264") == "GPL"
+def test_gpl_without_version3_is_gplv2(audit):
+    assert audit.classify_configuration("--enable-gpl --enable-libx264") == "GPLv2"
 
 
-def test_lgpl_default(audit):
-    assert audit.classify_configuration("--disable-ffplay --enable-shared") == "LGPL"
+def test_gpl_with_version3_is_gplv3(audit):
+    assert (
+        audit.classify_configuration("--enable-gpl --enable-version3 --enable-libx264")
+        == "GPLv3"
+    )
 
 
-def test_disable_gpl_is_lgpl(audit):
-    assert audit.classify_configuration("--disable-gpl --enable-shared") == "LGPL"
+def test_lgpl_default_is_lgplv21(audit):
+    assert audit.classify_configuration("--disable-ffplay --enable-shared") == "LGPLv2.1"
+
+
+def test_lgpl_with_version3_is_lgplv3(audit):
+    assert audit.classify_configuration("--enable-version3 --enable-shared") == "LGPLv3"
+
+
+def test_disable_gpl_is_lgplv21(audit):
+    assert audit.classify_configuration("--disable-gpl --enable-shared") == "LGPLv2.1"
+
+
+def test_disable_gpl_with_version3_is_lgplv3(audit):
+    assert (
+        audit.classify_configuration("--disable-gpl --enable-version3 --enable-shared")
+        == "LGPLv3"
+    )
 
 
 def test_bundled_license_texts_exist():
     d = ROOT / "desktop" / "third_party" / "ffmpeg"
-    assert (d / "COPYING.GPLv3").is_file()
-    assert (d / "COPYING.LGPLv2.1").is_file()
-    assert (d / "COPYING.GPLv3").stat().st_size > 1000
+    for name in (
+        "COPYING.GPLv2",
+        "COPYING.GPLv3",
+        "COPYING.LGPLv2.1",
+        "COPYING.LGPLv3",
+    ):
+        p = d / name
+        assert p.is_file(), name
+        assert p.stat().st_size > 1000, name
 
 
-def test_stage_license_artifacts_embeds_hashes(audit, tmp_path):
+@pytest.mark.parametrize(
+    "kind,filename",
+    [
+        ("GPLv2", "COPYING.GPLv2"),
+        ("GPLv3", "COPYING.GPLv3"),
+        ("LGPLv2.1", "COPYING.LGPLv2.1"),
+        ("LGPLv3", "COPYING.LGPLv3"),
+        ("GPL", "COPYING.GPLv3"),  # alias
+        ("LGPL", "COPYING.LGPLv2.1"),  # alias
+    ],
+)
+def test_stage_license_artifacts_picks_correct_copying(audit, tmp_path, kind, filename):
     meta = {
         "ffmpeg_version_line": "ffmpeg version n6.1 test",
         "ffmpeg_sha256": "a" * 64,
@@ -64,10 +99,12 @@ def test_stage_license_artifacts_embeds_hashes(audit, tmp_path):
         "download_url": "https://example.com/v8.0/linux.zip",
         "download_revision": "v8.0",
     }
-    info = audit.stage_license_artifacts(tmp_path, "GPL", meta)
+    info = audit.stage_license_artifacts(tmp_path, kind, meta)
     notices = tmp_path / "ffmpeg-notices"
-    assert (notices / "COPYING.GPLv3").is_file()
+    assert (notices / filename).is_file()
+    assert info["license_file"] == filename
     offer = (notices / "SOURCE_OFFER.txt").read_text(encoding="utf-8")
+    assert f"ffmpeg_license: {kind}" in offer
     assert meta["ffmpeg_sha256"] in offer
     assert meta["ffprobe_sha256"] in offer
     assert meta["download_url"] in offer
