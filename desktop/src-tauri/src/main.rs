@@ -118,10 +118,12 @@ fn main() {
             .min_inner_size(900.0, 650.0)
             .build()?;
 
-            let origin = url.clone();
+            let expected_port = {
+                let guard = state_for_setup.sidecar.lock();
+                guard.as_ref().map(|s| s.port).unwrap_or(0)
+            };
             let _ = window.on_navigation(move |nav_url| {
-                let s = nav_url.as_str();
-                s.starts_with(origin.as_str()) || s.starts_with("about:blank")
+                sidecar::is_allowed_navigation(nav_url.as_str(), expected_port)
             });
 
             let open_i = MenuItem::with_id(app, "open", "Mở…", true, None::<&str>)?;

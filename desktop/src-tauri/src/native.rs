@@ -1,12 +1,13 @@
 //! Native file bridge: picker, grant-set, start_local_job, drag-drop helpers.
 
-use vitranscript_lib::sidecar::SidecarState;
 use parking_lot::Mutex;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
+use vitranscript_lib::job_options::LocalJobOptions;
+use vitranscript_lib::sidecar::SidecarState;
 
 /// Extensions matching app.media AUDIO_EXTS | VIDEO_EXTS
 pub const MEDIA_EXTENSIONS: &[&str] = &[
@@ -39,28 +40,6 @@ impl GrantSet {
 pub struct AppState {
     pub sidecar: Mutex<Option<SidecarState>>,
     pub grants: GrantSet,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct LocalJobOptions {
-    pub model: String,
-    #[serde(default = "default_lang")]
-    pub language: String,
-    #[serde(default = "default_true")]
-    pub diarize: bool,
-    #[serde(default = "default_true")]
-    pub punctuate: bool,
-    #[serde(default)]
-    pub num_speakers: i32,
-    #[serde(default)]
-    pub glossary: String,
-}
-
-fn default_lang() -> String {
-    "vi".into()
-}
-fn default_true() -> bool {
-    true
 }
 
 #[derive(Debug, Serialize)]

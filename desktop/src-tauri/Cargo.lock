@@ -4214,6 +4214,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
  "ureq",
+ "url",
  "uuid",
  "windows-sys 0.59.0",
 ]

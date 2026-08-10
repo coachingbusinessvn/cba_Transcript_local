@@ -9,6 +9,7 @@ pub const READY_DEADLINE_SECS: u64 = 60;
 pub const SHUTDOWN_WAIT_SECS: u64 = 5;
 pub const HEALTH_POLL_MS: u64 = 100;
 pub const HEALTH_REQ_TIMEOUT_MS: u64 = 500;
+pub const KILL_GRACE_SECS: u64 = 2;
 
 #[derive(Debug, Error)]
 pub enum SidecarError {
@@ -103,6 +104,39 @@ pub fn validate_health_json(body: &str, expected_port: u16) -> Result<(), Sideca
     Ok(())
 }
 
+/// Exact-origin navigation guard: scheme=http, host=127.0.0.1, port matches sidecar.
+/// Rejects userinfo tricks like `http://127.0.0.1:8756@evil.example/`.
+pub fn is_allowed_navigation(url: &str, expected_port: u16) -> bool {
+    let s = url.trim();
+    if s == "about:blank" {
+        return true;
+    }
+    #[cfg(feature = "gui")]
+    {
+        if let Ok(u) = url::Url::parse(s) {
+            return u.scheme() == "http"
+                && u.host_str() == Some("127.0.0.1")
+                && u.port() == Some(expected_port)
+                && u.username().is_empty()
+                && u.password().is_none();
+        }
+        return false;
+    }
+    #[cfg(not(feature = "gui"))]
+    {
+        if s.contains('@') {
+            return false;
+        }
+        let hostport = format!("127.0.0.1:{expected_port}");
+        let rest = match s.strip_prefix("http://") {
+            Some(r) => r,
+            None => return false,
+        };
+        let hp = rest.split(['/', '?', '#']).next().unwrap_or("");
+        hp == hostport
+    }
+}
+
 pub fn host_target_triple() -> String {
     env!("TARGET_TRIPLE").to_string()
 }
@@ -118,11 +152,11 @@ pub fn sidecar_binary_name_for_triple(triple: &str) -> String {
 #[cfg(feature = "gui")]
 mod runtime {
     use super::*;
-    use parking_lot::Mutex;
-    use std::io::{BufReader, Read};
+    use std::io::{Read, Write};
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::mpsc::{self, RecvTimeoutError};
     use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -133,9 +167,13 @@ mod runtime {
             if Instant::now() >= overall_deadline {
                 return Err(SidecarError::Health("timeout waiting /healthz".into()));
             }
+            let remaining = overall_deadline.saturating_duration_since(Instant::now());
+            let slice = remaining
+                .min(Duration::from_millis(HEALTH_REQ_TIMEOUT_MS))
+                .max(Duration::from_millis(50));
             let agent = ureq::AgentBuilder::new()
-                .timeout_connect(Duration::from_millis(HEALTH_REQ_TIMEOUT_MS))
-                .timeout_read(Duration::from_millis(HEALTH_REQ_TIMEOUT_MS))
+                .timeout_connect(slice)
+                .timeout_read(slice)
                 .build();
             if let Ok(resp) = agent.get(&url).call() {
                 if let Ok(text) = resp.into_string() {
@@ -162,7 +200,9 @@ mod runtime {
             return Ok(candidate);
         }
         let triple = host_target_triple();
-        let staged = dir.join("../binaries").join(sidecar_binary_name_for_triple(&triple));
+        let staged = dir
+            .join("../binaries")
+            .join(sidecar_binary_name_for_triple(&triple));
         if staged.is_file() {
             return Ok(staged.canonicalize().unwrap_or(staged));
         }
@@ -170,14 +210,18 @@ mod runtime {
     }
 
     pub struct SidecarState {
-        pub child: Child,
         pub token: String,
         pub port: u16,
         pub ready_url: String,
         pub log_path: PathBuf,
         pub shutting_down: Arc<AtomicBool>,
         #[cfg(unix)]
-        pub pgid: i32,
+        child: Child,
+        #[cfg(unix)]
+        pgid: i32,
+        #[cfg(windows)]
+        win: windows_proc::WinProc,
+        cleaned: bool,
     }
 
     impl SidecarState {
@@ -208,45 +252,74 @@ mod runtime {
         pub fn wait_exit_or_kill(&mut self, wait: Duration) {
             let start = Instant::now();
             while start.elapsed() < wait {
-                match self.child.try_wait() {
-                    Ok(Some(_)) => return,
-                    Ok(None) => thread::sleep(Duration::from_millis(100)),
-                    Err(_) => break,
+                if self.try_reap() {
+                    self.cleaned = true;
+                    return;
                 }
+                thread::sleep(Duration::from_millis(100));
             }
             self.force_kill_tree();
-            let _ = self.child.wait();
+            let end = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < end {
+                if self.try_reap() {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50));
+            }
+            self.cleaned = true;
         }
 
+        fn try_reap(&mut self) -> bool {
+            #[cfg(unix)]
+            {
+                matches!(self.child.try_wait(), Ok(Some(_)))
+            }
+            #[cfg(windows)]
+            {
+                self.win.try_wait().is_some()
+            }
+        }
+
+        /// TERM group/job → grace → KILL group/job. Idempotent.
         pub fn force_kill_tree(&mut self) {
             #[cfg(unix)]
             {
                 let pgid = self.pgid;
-                unsafe {
-                    libc_kill_pg(pgid, 15);
+                if pgid > 0 {
+                    unix_kill_pg(pgid, 15); // SIGTERM
+                    thread::sleep(Duration::from_secs(KILL_GRACE_SECS));
+                    // Always signal group again — leader may be reaped while descendants live.
+                    unix_kill_pg(pgid, 9); // SIGKILL
                 }
-                thread::sleep(Duration::from_secs(2));
-                match self.child.try_wait() {
-                    Ok(Some(_)) => return,
-                    _ => unsafe {
-                        libc_kill_pg(pgid, 9);
-                    },
-                }
-            }
-            #[cfg(not(unix))]
-            {
                 let _ = self.child.kill();
+                let _ = self.child.try_wait();
+            }
+            #[cfg(windows)]
+            {
+                self.win.terminate_via_job();
+            }
+            self.cleaned = true;
+        }
+    }
+
+    impl Drop for SidecarState {
+        fn drop(&mut self) {
+            if !self.cleaned {
+                self.force_kill_tree();
             }
         }
     }
 
     #[cfg(unix)]
-    fn libc_kill_pg(pgid: i32, sig: i32) {
+    fn unix_kill_pg(pgid: i32, sig: i32) {
+        if pgid <= 0 {
+            return;
+        }
         extern "C" {
             fn kill(pid: i32, sig: i32) -> i32;
         }
         unsafe {
-            kill(-pgid, sig);
+            let _ = kill(-pgid, sig);
         }
     }
 
@@ -258,17 +331,18 @@ mod runtime {
         )
     }
 
-    pub fn spawn_sidecar(
-        binary: &Path,
-        token: &str,
-        log_path: &Path,
-    ) -> Result<(Child, Option<i32>), SidecarError> {
+    // -----------------------------------------------------------------------
+    // Unix spawn + READY wait
+    // -----------------------------------------------------------------------
+
+    #[cfg(unix)]
+    fn spawn_unix(binary: &Path, token: &str, log_path: &Path) -> Result<(Child, i32), SidecarError> {
+        use std::os::unix::process::CommandExt;
         if let Some(parent) = log_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
         let log_file = std::fs::File::create(log_path)?;
         let log_err = log_file.try_clone()?;
-
         let mut cmd = Command::new(binary);
         cmd.arg("--port")
             .arg("0")
@@ -278,110 +352,476 @@ mod runtime {
             .env("PYTHONUNBUFFERED", "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::from(log_err));
-
-        #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            unsafe {
-                cmd.pre_exec(|| {
-                    extern "C" {
-                        fn setpgid(pid: i32, pgid: i32) -> i32;
-                    }
-                    setpgid(0, 0);
-                    Ok(())
-                });
-            }
-        }
-
+        // New process group; spawn fails if setpgid fails.
+        cmd.process_group(0);
         let child = cmd.spawn().map_err(|e| SidecarError::Spawn(e.to_string()))?;
-        #[cfg(unix)]
-        let pgid = Some(child.id() as i32);
-        #[cfg(not(unix))]
-        let pgid = None;
+        let pgid = child.id() as i32;
         let _ = log_file;
         Ok((child, pgid))
     }
 
-    pub fn wait_for_ready(
-        child: &mut Child,
+    #[cfg(unix)]
+    fn force_kill_unix(child: &mut Child, pgid: i32) {
+        if pgid > 0 {
+            unix_kill_pg(pgid, 15);
+            thread::sleep(Duration::from_millis(300));
+            unix_kill_pg(pgid, 9);
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+
+    /// Drain stdout on a dedicated thread; main loop uses recv_timeout against deadline.
+    fn wait_for_ready_reader(
+        stdout: impl Read + Send + 'static,
+        mut try_exit: impl FnMut() -> Result<Option<Option<i32>>, SidecarError>,
         log_path: &Path,
         deadline: Instant,
     ) -> Result<u16, SidecarError> {
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| SidecarError::Spawn("no stdout".into()))?;
-        let mut reader = BufReader::new(stdout);
+        let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
+        thread::spawn(move || {
+            let mut reader = stdout;
+            let mut buf = [0u8; 512];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => {
+                        if tx.send(Ok(buf[..n].to_vec())).is_err() {
+                            break;
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(e) => {
+                        let _ = tx.send(Err(e.to_string()));
+                        break;
+                    }
+                }
+            }
+        });
+
         let mut parser = ReadyParser::new();
-        let mut chunk = [0u8; 512];
         let mut log = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(log_path)?;
 
         loop {
-            if Instant::now() >= deadline {
+            let now = Instant::now();
+            if now >= deadline {
                 return Err(SidecarError::ReadyTimeout);
             }
-            match child.try_wait()? {
-                Some(status) if !parser.seen() => {
-                    return Err(SidecarError::ExitedBeforeReady(status.code()));
+            match try_exit()? {
+                Some(code) if !parser.seen() => {
+                    return Err(SidecarError::ExitedBeforeReady(code));
                 }
                 _ => {}
             }
-            match reader.read(&mut chunk) {
-                Ok(0) => match child.try_wait()? {
-                    Some(status) => return Err(SidecarError::ExitedBeforeReady(status.code())),
-                    None => thread::sleep(Duration::from_millis(50)),
-                },
-                Ok(n) => {
-                    let s = String::from_utf8_lossy(&chunk[..n]);
-                    let _ = std::io::Write::write_all(&mut log, s.as_bytes());
+            let slice = deadline
+                .saturating_duration_since(now)
+                .min(Duration::from_millis(200));
+            match rx.recv_timeout(slice) {
+                Ok(Ok(bytes)) => {
+                    let s = String::from_utf8_lossy(&bytes);
+                    let _ = log.write_all(s.as_bytes());
                     if let Some(port) = parser.feed(&s)? {
                         println!("VITRANSCRIPT_READY http://127.0.0.1:{port}");
-                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                        let _ = std::io::stdout().flush();
                         return Ok(port);
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e.into()),
+                Ok(Err(e)) => return Err(SidecarError::Spawn(format!("stdout read: {e}"))),
+                Err(RecvTimeoutError::Timeout) => continue,
+                Err(RecvTimeoutError::Disconnected) => match try_exit()? {
+                    Some(code) => return Err(SidecarError::ExitedBeforeReady(code)),
+                    None if Instant::now() >= deadline => return Err(SidecarError::ReadyTimeout),
+                    None => {
+                        return Err(SidecarError::Spawn("stdout closed before READY".into()));
+                    }
+                },
             }
         }
     }
 
+    #[cfg(unix)]
     pub fn start_and_ready(binary: &Path, data_log_dir: &Path) -> Result<SidecarState, SidecarError> {
         let token = generate_token();
         let log_path = data_log_dir.join("sidecar.log");
         let deadline = Instant::now() + Duration::from_secs(READY_DEADLINE_SECS);
-        let (mut child, pgid) = spawn_sidecar(binary, &token, &log_path)?;
-        let port = match wait_for_ready(&mut child, &log_path, deadline) {
-            Ok(p) => p,
-            Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(e);
+
+        let (mut child, pgid) = spawn_unix(binary, &token, &log_path)?;
+        let stdout = match child.stdout.take() {
+            Some(s) => s,
+            None => {
+                force_kill_unix(&mut child, pgid);
+                return Err(SidecarError::Spawn("no stdout".into()));
             }
         };
+
+        let port = {
+            let child_ref = &mut child;
+            match wait_for_ready_reader(
+                stdout,
+                || match child_ref.try_wait()? {
+                    Some(st) => Ok(Some(st.code())),
+                    None => Ok(None),
+                },
+                &log_path,
+                deadline,
+            ) {
+                Ok(p) => p,
+                Err(e) => {
+                    force_kill_unix(&mut child, pgid);
+                    return Err(e);
+                }
+            }
+        };
+
         if let Err(e) = poll_healthz(port, deadline) {
-            let _ = child.kill();
-            let _ = child.wait();
+            force_kill_unix(&mut child, pgid);
             return Err(e);
         }
+
         Ok(SidecarState {
-            child,
             token,
             port,
             ready_url: format!("http://127.0.0.1:{port}"),
             log_path,
             shutting_down: Arc::new(AtomicBool::new(false)),
-            #[cfg(unix)]
-            pgid: pgid.unwrap_or(0),
+            child,
+            pgid,
+            cleaned: false,
         })
     }
 
-    // silence unused Mutex import if not used
-    #[allow(dead_code)]
-    type _Lock = Mutex<()>;
+    // -----------------------------------------------------------------------
+    // Windows: CreateProcessW suspended + Job Object + ResumeThread
+    // -----------------------------------------------------------------------
+
+    #[cfg(windows)]
+    pub fn start_and_ready(binary: &Path, data_log_dir: &Path) -> Result<SidecarState, SidecarError> {
+        let token = generate_token();
+        let log_path = data_log_dir.join("sidecar.log");
+        let deadline = Instant::now() + Duration::from_secs(READY_DEADLINE_SECS);
+
+        let mut win =
+            windows_proc::spawn_with_job(binary, &token, &log_path).map_err(SidecarError::Spawn)?;
+        let stdout = match win.take_stdout() {
+            Some(s) => s,
+            None => {
+                win.terminate_via_job();
+                return Err(SidecarError::Spawn("no stdout".into()));
+            }
+        };
+
+        let port = {
+            let win_ref = &mut win;
+            match wait_for_ready_reader(
+                stdout,
+                || Ok(win_ref.try_wait().map(Some)),
+                &log_path,
+                deadline,
+            ) {
+                Ok(p) => p,
+                Err(e) => {
+                    win.terminate_via_job();
+                    return Err(e);
+                }
+            }
+        };
+
+        if let Err(e) = poll_healthz(port, deadline) {
+            win.terminate_via_job();
+            return Err(e);
+        }
+
+        Ok(SidecarState {
+            token,
+            port,
+            ready_url: format!("http://127.0.0.1:{port}"),
+            log_path,
+            shutting_down: Arc::new(AtomicBool::new(false)),
+            win,
+            cleaned: false,
+        })
+    }
+
+    #[cfg(windows)]
+    mod windows_proc {
+        use super::*;
+        use std::fs::File;
+        use std::os::windows::io::{AsRawHandle, FromRawHandle, RawHandle};
+        use std::ptr;
+        use windows_sys::Win32::Foundation::{
+            CloseHandle, DuplicateHandle, GetLastError, SetHandleInformation, BOOL, HANDLE,
+            HANDLE_FLAG_INHERIT, INVALID_HANDLE_VALUE, TRUE, DUPLICATE_SAME_ACCESS,
+        };
+        use windows_sys::Win32::System::JobObjects::{
+            AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
+            SetInformationJobObject, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        };
+        use windows_sys::Win32::System::Pipes::CreatePipe;
+        use windows_sys::Win32::System::Threading::{
+            CreateProcessW, GetCurrentProcess, GetExitCodeProcess, ResumeThread, TerminateProcess,
+            WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
+            PROCESS_INFORMATION, STARTF_USESTDHANDLES, STARTUPINFOW,
+        };
+        use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+
+        const STILL_ACTIVE: u32 = 259;
+
+        pub struct WinProc {
+            process: HANDLE,
+            job: HANDLE,
+            stdout_read: Option<File>,
+        }
+
+        // SAFETY: exclusive owner of process/job handles.
+        unsafe impl Send for WinProc {}
+
+        impl WinProc {
+            pub fn take_stdout(&mut self) -> Option<File> {
+                self.stdout_read.take()
+            }
+
+            pub fn try_wait(&mut self) -> Option<i32> {
+                unsafe {
+                    if self.process.is_null() || self.process == INVALID_HANDLE_VALUE {
+                        return Some(-1);
+                    }
+                    let mut code: u32 = 0;
+                    if GetExitCodeProcess(self.process, &mut code) == 0 {
+                        return None;
+                    }
+                    if code == STILL_ACTIVE {
+                        None
+                    } else {
+                        Some(code as i32)
+                    }
+                }
+            }
+
+            /// Idempotent tree kill: close Job (KILL_ON_JOB_CLOSE) then terminate process.
+            pub fn terminate_via_job(&mut self) {
+                unsafe {
+                    if !self.job.is_null() && self.job != INVALID_HANDLE_VALUE {
+                        let _ = CloseHandle(self.job);
+                        self.job = ptr::null_mut();
+                    }
+                    if !self.process.is_null() && self.process != INVALID_HANDLE_VALUE {
+                        let _ = TerminateProcess(self.process, 1);
+                        let _ = WaitForSingleObject(self.process, 3000);
+                        let _ = CloseHandle(self.process);
+                        self.process = ptr::null_mut();
+                    }
+                }
+            }
+        }
+
+        impl Drop for WinProc {
+            fn drop(&mut self) {
+                self.terminate_via_job();
+            }
+        }
+
+        pub fn spawn_with_job(
+            binary: &Path,
+            token: &str,
+            log_path: &Path,
+        ) -> Result<WinProc, String> {
+            unsafe { spawn_with_job_inner(binary, token, log_path) }
+        }
+
+        unsafe fn spawn_with_job_inner(
+            binary: &Path,
+            token: &str,
+            log_path: &Path,
+        ) -> Result<WinProc, String> {
+            if let Some(parent) = log_path.parent() {
+                std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+            }
+
+            let mut stdout_read: HANDLE = ptr::null_mut();
+            let mut stdout_write: HANDLE = ptr::null_mut();
+            let mut sa = SECURITY_ATTRIBUTES {
+                nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+                lpSecurityDescriptor: ptr::null_mut(),
+                bInheritHandle: TRUE,
+            };
+            if CreatePipe(&mut stdout_read, &mut stdout_write, &mut sa, 0) == 0 {
+                return Err(format!("CreatePipe stdout failed: {}", GetLastError()));
+            }
+            if SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0) == 0 {
+                let _ = CloseHandle(stdout_read);
+                let _ = CloseHandle(stdout_write);
+                return Err(format!("SetHandleInformation failed: {}", GetLastError()));
+            }
+
+            let log = File::options()
+                .create(true)
+                .append(true)
+                .open(log_path)
+                .map_err(|e| e.to_string())?;
+            let mut stderr_inherit: HANDLE = ptr::null_mut();
+            if DuplicateHandle(
+                GetCurrentProcess(),
+                log.as_raw_handle() as HANDLE,
+                GetCurrentProcess(),
+                &mut stderr_inherit,
+                0,
+                TRUE,
+                DUPLICATE_SAME_ACCESS,
+            ) == 0
+            {
+                let _ = CloseHandle(stdout_read);
+                let _ = CloseHandle(stdout_write);
+                return Err(format!("DuplicateHandle stderr failed: {}", GetLastError()));
+            }
+
+            let nul = File::options()
+                .read(true)
+                .write(true)
+                .open("NUL")
+                .map_err(|e| e.to_string())?;
+            let mut stdin_h: HANDLE = ptr::null_mut();
+            if DuplicateHandle(
+                GetCurrentProcess(),
+                nul.as_raw_handle() as HANDLE,
+                GetCurrentProcess(),
+                &mut stdin_h,
+                0,
+                TRUE,
+                DUPLICATE_SAME_ACCESS,
+            ) == 0
+            {
+                let _ = CloseHandle(stdout_read);
+                let _ = CloseHandle(stdout_write);
+                let _ = CloseHandle(stderr_inherit);
+                return Err(format!("DuplicateHandle stdin failed: {}", GetLastError()));
+            }
+
+            let mut si: STARTUPINFOW = std::mem::zeroed();
+            si.cb = std::mem::size_of::<STARTUPINFOW>() as u32;
+            si.dwFlags = STARTF_USESTDHANDLES;
+            si.hStdInput = stdin_h;
+            si.hStdOutput = stdout_write;
+            si.hStdError = stderr_inherit;
+
+            let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+
+            let exe = binary
+                .canonicalize()
+                .unwrap_or_else(|_| binary.to_path_buf());
+            let cmd_line = format!(
+                "\"{}\" --port 0 --no-browser",
+                exe.to_string_lossy().replace('"', "")
+            );
+            let mut cmd_wide: Vec<u16> = cmd_line.encode_utf16().chain(std::iter::once(0)).collect();
+            let env_block = build_env_block(&[
+                ("VITRANSCRIPT_INSTANCE_TOKEN", token),
+                ("VITRANSCRIPT_DESKTOP", "1"),
+                ("PYTHONUNBUFFERED", "1"),
+            ]);
+
+            let flags = CREATE_SUSPENDED | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT;
+            let ok = CreateProcessW(
+                ptr::null(),
+                cmd_wide.as_mut_ptr(),
+                ptr::null_mut(),
+                ptr::null_mut(),
+                TRUE,
+                flags,
+                env_block.as_ptr() as *const _,
+                ptr::null(),
+                &si,
+                &mut pi,
+            );
+            let _ = CloseHandle(stdout_write);
+            let _ = CloseHandle(stderr_inherit);
+            let _ = CloseHandle(stdin_h);
+            drop(log);
+            drop(nul);
+
+            if ok == 0 {
+                let _ = CloseHandle(stdout_read);
+                return Err(format!("CreateProcessW failed: {}", GetLastError()));
+            }
+
+            let job = CreateJobObjectW(ptr::null(), ptr::null());
+            if job.is_null() || job == INVALID_HANDLE_VALUE {
+                let _ = TerminateProcess(pi.hProcess, 1);
+                let _ = CloseHandle(pi.hThread);
+                let _ = CloseHandle(pi.hProcess);
+                let _ = CloseHandle(stdout_read);
+                return Err(format!("CreateJobObjectW failed: {}", GetLastError()));
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            if SetInformationJobObject(
+                job,
+                JobObjectExtendedLimitInformation,
+                &info as *const _ as *const _,
+                std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            ) == 0
+            {
+                let _ = CloseHandle(job);
+                let _ = TerminateProcess(pi.hProcess, 1);
+                let _ = CloseHandle(pi.hThread);
+                let _ = CloseHandle(pi.hProcess);
+                let _ = CloseHandle(stdout_read);
+                return Err(format!(
+                    "SetInformationJobObject failed: {}",
+                    GetLastError()
+                ));
+            }
+            if AssignProcessToJobObject(job, pi.hProcess) == 0 {
+                let _ = CloseHandle(job);
+                let _ = TerminateProcess(pi.hProcess, 1);
+                let _ = CloseHandle(pi.hThread);
+                let _ = CloseHandle(pi.hProcess);
+                let _ = CloseHandle(stdout_read);
+                return Err(format!(
+                    "AssignProcessToJobObject failed: {}",
+                    GetLastError()
+                ));
+            }
+
+            if ResumeThread(pi.hThread) == u32::MAX {
+                let err = GetLastError();
+                let _ = CloseHandle(job);
+                let _ = TerminateProcess(pi.hProcess, 1);
+                let _ = CloseHandle(pi.hThread);
+                let _ = CloseHandle(pi.hProcess);
+                let _ = CloseHandle(stdout_read);
+                return Err(format!("ResumeThread failed: {err}"));
+            }
+            let _ = CloseHandle(pi.hThread);
+
+            let stdout_file = File::from_raw_handle(stdout_read as RawHandle);
+
+            Ok(WinProc {
+                process: pi.hProcess,
+                job,
+                stdout_read: Some(stdout_file),
+            })
+        }
+
+        fn build_env_block(overrides: &[(&str, &str)]) -> Vec<u16> {
+            use std::collections::BTreeMap;
+            let mut map: BTreeMap<String, String> = std::env::vars().collect();
+            for (k, v) in overrides {
+                map.insert((*k).to_string(), (*v).to_string());
+            }
+            let mut block: Vec<u16> = Vec::new();
+            for (k, v) in map {
+                let entry = format!("{k}={v}");
+                block.extend(entry.encode_utf16());
+                block.push(0);
+            }
+            block.push(0);
+            block
+        }
+    }
 }
 
 #[cfg(feature = "gui")]
@@ -465,5 +905,21 @@ mod tests {
             sidecar_binary_name_for_triple("x86_64-pc-windows-msvc"),
             "vitranscript-sidecar-x86_64-pc-windows-msvc.exe"
         );
+    }
+
+    #[test]
+    fn navigation_guard_exact_origin() {
+        assert!(is_allowed_navigation("http://127.0.0.1:8756/", 8756));
+        assert!(is_allowed_navigation("http://127.0.0.1:8756", 8756));
+        assert!(is_allowed_navigation("http://127.0.0.1:8756/api/meta", 8756));
+        assert!(is_allowed_navigation("about:blank", 8756));
+        assert!(!is_allowed_navigation(
+            "http://127.0.0.1:8756@evil.example/",
+            8756
+        ));
+        assert!(!is_allowed_navigation("http://evil.example/", 8756));
+        assert!(!is_allowed_navigation("https://127.0.0.1:8756/", 8756));
+        assert!(!is_allowed_navigation("http://127.0.0.1:9999/", 8756));
+        assert!(!is_allowed_navigation("http://localhost:8756/", 8756));
     }
 }
