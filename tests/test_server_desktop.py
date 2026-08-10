@@ -727,3 +727,79 @@ def test_frozen_ffmpeg_prefers_bundle(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
     assert Path(media.ffmpeg_path()) == ff
     assert Path(media.ffprobe_path()) == fp
+
+
+def test_frozen_missing_ffprobe_does_not_use_bundle(monkeypatch, tmp_path):
+    """CR-3: thiếu ffprobe bundled → không trả path ảo (bypass guard file dài)."""
+    bin_dir = tmp_path / "ffmpeg"
+    bin_dir.mkdir()
+    ff = bin_dir / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    ff.write_text("#!/bin/sh\n", encoding="utf-8")
+    # không tạo ffprobe
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert media._bundled_ffmpeg_dir() is None
+    # ffprobe_path không được trả path không tồn tại trong bundle
+    fp_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+    missing = bin_dir / fp_name
+    got = media.ffprobe_path()
+    assert Path(got) != missing
+    # nếu path nằm dưới MEIPASS thì phải tồn tại (không bypass bằng path ma)
+    if str(tmp_path) in got:
+        assert Path(got).is_file()
+
+
+def test_local_job_num_speakers_out_of_range(local_job_env):
+    """CR-6: num_speakers ngoài [0,20] → 400 chuỗi tiếng Việt (không 422 list)."""
+    tmp_path, token, _started = local_job_env
+    f = tmp_path / "sample.wav"
+    f.write_bytes(b"RIFF")
+    c = TestClient(server.app)
+    for bad in (-1, 21, 100):
+        body = {
+            "path": str(f),
+            "model": "phowhisper-small",
+            "language": "vi",
+            "diarize": False,
+            "punctuate": False,
+            "num_speakers": bad,
+            "glossary": "",
+        }
+        r = c.post(
+            "/api/jobs/local",
+            json=body,
+            headers={"X-ViTranscript-Token": token},
+        )
+        assert r.status_code == 400, (bad, r.status_code, r.text)
+        detail = r.json()["detail"]
+        assert isinstance(detail, str), detail
+        assert "0" in detail and "20" in detail
+        assert "[object Object]" not in detail
+
+
+def test_local_job_num_speakers_boundary_ok(local_job_env):
+    """num_speakers 0 và 20 vẫn chấp nhận."""
+    tmp_path, token, started = local_job_env
+    f = tmp_path / "sample.wav"
+    f.write_bytes(b"RIFF")
+    c = TestClient(server.app)
+    for ok in (0, 20):
+        started.clear()
+        server.JOBS.clear()  # v1: 1 job — xóa reservation giả từ lần trước
+        body = {
+            "path": str(f),
+            "model": "phowhisper-small",
+            "language": "vi",
+            "diarize": False,
+            "punctuate": False,
+            "num_speakers": ok,
+            "glossary": "",
+        }
+        r = c.post(
+            "/api/jobs/local",
+            json=body,
+            headers={"X-ViTranscript-Token": token},
+        )
+        assert r.status_code == 200, (ok, r.text)
+        assert len(started) == 1
+        assert started[0][1][2]["num_speakers"] == ok

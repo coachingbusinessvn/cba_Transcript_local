@@ -53,8 +53,25 @@ class LocalJobRequest(BaseModel):
     language: str = "vi"
     diarize: bool = True
     punctuate: bool = True
-    num_speakers: int = Field(default=0, ge=0, le=20)
+    # Không dùng Field(ge/le) — Pydantic 422 trả detail dạng list → UI '[object Object]'.
+    # Validate thủ công qua _validate_num_speakers (400 chuỗi tiếng Việt, đồng bộ upload).
+    num_speakers: int = 0
     glossary: str = ""
+
+
+def _validate_num_speakers(num_speakers: int) -> int:
+    """num_speakers trong [0, 20]. 0 = tự động. Lỗi → HTTP 400 chuỗi rõ (không 422 list)."""
+    if not isinstance(num_speakers, int) or isinstance(num_speakers, bool):
+        raise HTTPException(
+            400,
+            "Số người nói không hợp lệ — nhập số nguyên từ 0 đến 20 (0 = tự động).",
+        )
+    if num_speakers < 0 or num_speakers > 20:
+        raise HTTPException(
+            400,
+            f"Số người nói phải từ 0 đến 20 (0 = tự động), nhận được {num_speakers}.",
+        )
+    return num_speakers
 
 
 def _long_audio_policy(duration: float | None, diarize: bool) -> tuple[bool, str | None]:
@@ -356,6 +373,7 @@ async def create_job(
 ):
     if model not in config.MODEL_REGISTRY:
         raise HTTPException(400, "Model không hợp lệ")
+    num_speakers = _validate_num_speakers(num_speakers)
     name = Path(file.filename or "input")
     if not media.is_supported(name):
         raise HTTPException(400, f"Định dạng {name.suffix} chưa hỗ trợ")
@@ -397,6 +415,7 @@ async def create_local_job(body: LocalJobRequest, request: Request):
 
     if body.model not in config.MODEL_REGISTRY:
         raise HTTPException(400, "Model không hợp lệ")
+    num_speakers = _validate_num_speakers(body.num_speakers)
 
     try:
         source = runtime.validate_local_media_path(body.path)
@@ -415,7 +434,7 @@ async def create_local_job(body: LocalJobRequest, request: Request):
             language=body.language,
             diarize=body.diarize,
             punctuate=body.punctuate,
-            num_speakers=body.num_speakers,
+            num_speakers=num_speakers,
             glossary=body.glossary,
         )
     except Exception:

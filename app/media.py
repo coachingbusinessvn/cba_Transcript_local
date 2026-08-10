@@ -11,13 +11,18 @@ VIDEO_EXTS = {".mov", ".mp4", ".mkv", ".avi", ".webm", ".m4v"}
 
 
 def _bundled_ffmpeg_dir() -> Path | None:
-    """Thư mục ffmpeg/ cạnh binary khi chạy PyInstaller (sys.frozen + _MEIPASS)."""
+    """Thư mục ffmpeg/ cạnh binary khi chạy PyInstaller (sys.frozen + _MEIPASS).
+
+    Chỉ trả về khi CẢ ffmpeg và ffprobe đều tồn tại — thiếu ffprobe sẽ làm
+    duration_seconds() OSError → None → bỏ qua guard file dài (CR-3).
+    """
     if not getattr(sys, "frozen", False):
         return None
     base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
     d = base / "ffmpeg"
-    exe = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
-    if (d / exe).is_file():
+    ffmpeg_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    ffprobe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+    if (d / ffmpeg_name).is_file() and (d / ffprobe_name).is_file():
         return d
     return None
 
