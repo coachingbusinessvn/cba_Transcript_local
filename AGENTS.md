@@ -86,7 +86,7 @@ docs/
 <!-- status-block: start -->
 ## Current status
 
-**Progress:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0 🟢, D1–D5 🔵 (plan Tauri)
+**Progress:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D5 🟢 (code), e2e Ubuntu full 🔵
 
 **App modules in `app/`:**
 `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
@@ -113,14 +113,20 @@ docs/
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
-| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | Plan: `docs/superpowers/plans/2026-08-10-desktop-tauri.md` |
-| D1–D5 | PyInstaller / Tauri / native UI / CI / e2e Ubuntu | 🔵 | Đang triển khai trên nhánh desktop |
+| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | `server_runtime.py` + 52 unit test |
+| D1 | PyInstaller sidecar | 🟢 | onedir+onefile self-test PASS (native + ffmpeg) |
+| D2 | Tauri shell + lifecycle | 🟢 | READY/health/shutdown; cargo test --lib 6 pass |
+| D3 | Native file bridge + queue UI | 🟢 | pick/start_local_job + queue HTML; no tray |
+| D4 | Icon + build scripts + CI | 🟢 | build-*.sh/ps1 + desktop-build.yml matrix |
+| D5 | E2E Ubuntu scripts | 🟢 | gen_test_audio / e2e_sidecar / smoke_desktop (chạy full: agent sau) |
 
 **Open risks / blockers:**
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
+- [ ] Desktop: full e2e Ubuntu (Xvfb + AppImage) + Mac/Win native verify trên máy thật
+- [ ] Host thiếu WebKitGTK/pkg-config — `cargo tauri build` cần apt deps (CI ubuntu-22.04)
 - [ ] Desktop: PyInstaller native libs + e2e Ubuntu (Task D1/D5)
 <!-- status-block: end -->
 
