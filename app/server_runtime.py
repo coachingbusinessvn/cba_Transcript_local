@@ -5,6 +5,7 @@ Tách khỏi FastAPI app để test được độc lập và giữ `python -m a
 from __future__ import annotations
 
 import argparse
+import hashlib
 import hmac
 import importlib
 import ipaddress
@@ -122,15 +123,22 @@ def is_loopback_host(host: str | None) -> bool:
 
 
 def tokens_match(expected: str | None, provided: str | None) -> bool:
-    if not expected or not provided:
+    """So khớp token: chuẩn hóa rồi *chỉ* dùng hmac.compare_digest.
+
+    Độ dài khác nhau vẫn đi qua compare_digest (so hash SHA-256 của từng bên)
+    để không rẽ nhánh sớm theo len — contract constant-time cho giá trị.
+    """
+    if expected is None or provided is None:
         return False
-    # hmac.compare_digest yêu cầu cùng kiểu/độ dài tương đương — encode utf-8
-    a = expected.encode("utf-8")
-    b = provided.encode("utf-8")
-    if len(a) != len(b):
-        # Vẫn so sánh với padding giả để giảm leak độ dài? Plan yêu cầu constant-time
-        # cho token đúng format; độ dài khác → False ngay (token fixed length 256-bit hex).
+    # Chuẩn hóa representation (str strip); rỗng sau chuẩn hóa → reject.
+    a_raw = expected.strip()
+    b_raw = provided.strip()
+    if not a_raw or not b_raw:
         return False
+    # Hash → digest cố định 32 byte để compare_digest luôn cùng độ dài.
+    # Phép so sánh giá trị duy nhất là compare_digest (không return sớm theo len).
+    a = hashlib.sha256(a_raw.encode("utf-8")).digest()
+    b = hashlib.sha256(b_raw.encode("utf-8")).digest()
     return hmac.compare_digest(a, b)
 
 
@@ -159,20 +167,29 @@ def maybe_register_test_model() -> None:
 def _is_windows_reparse(path: Path) -> bool:
     """True nếu path là reparse point (junction/symlink) trên Windows.
 
-    Dùng ctypes GetFileAttributesW; trên non-Windows luôn False.
+    Dùng ctypes GetFileAttributesW với argtypes/restype rõ ràng.
+    Fail-closed: API lỗi / INVALID_FILE_ATTRIBUTES → raise OSError (caller reject).
+    Non-Windows: luôn False.
     """
     if sys.platform != "win32":
         return False
-    try:
-        import ctypes
+    import ctypes
+    from ctypes import wintypes
 
-        FILE_ATTRIBUTE_REPARSE_POINT = 0x400
-        attrs = ctypes.windll.kernel32.GetFileAttributesW(str(path))  # type: ignore[attr-defined]
-        if attrs == -1:
-            return False
-        return bool(attrs & FILE_ATTRIBUTE_REPARSE_POINT)
-    except Exception:
-        return False
+    # INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF (DWORD)
+    INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF
+    FILE_ATTRIBUTE_REPARSE_POINT = 0x400
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_attrs = kernel32.GetFileAttributesW
+    get_attrs.argtypes = [wintypes.LPCWSTR]
+    get_attrs.restype = wintypes.DWORD
+
+    attrs = get_attrs(str(path))
+    if attrs == INVALID_FILE_ATTRIBUTES:
+        err = ctypes.get_last_error()
+        raise OSError(err, f"GetFileAttributesW failed for {path}")
+    return bool(attrs & FILE_ATTRIBUTE_REPARSE_POINT)
 
 
 def validate_local_media_path(path_str: str) -> Path:
@@ -214,8 +231,16 @@ def validate_local_media_path(path_str: str) -> Path:
             raise ValueError(f"Đường dẫn không tồn tại: {cur.name}") from e
         if stat.S_ISLNK(st.st_mode):
             raise ValueError(f"Không chấp nhận symlink: {cur.name}")
-        if sys.platform == "win32" and _is_windows_reparse(cur):
-            raise ValueError(f"Không chấp nhận reparse/junction: {cur.name}")
+        if sys.platform == "win32":
+            try:
+                is_reparse = _is_windows_reparse(cur)
+            except OSError as e:
+                # Fail-closed: không đọc được attributes → reject path.
+                raise ValueError(
+                    f"Không đọc được thuộc tính path (reparse check): {cur.name}"
+                ) from e
+            if is_reparse:
+                raise ValueError(f"Không chấp nhận reparse/junction: {cur.name}")
 
     try:
         resolved = p.resolve(strict=True)

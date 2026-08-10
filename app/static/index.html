@@ -516,7 +516,13 @@
             const item = queue.find((q) => q.status === "wait");
             if (!item) break;
             item.status = "running";
-            item.options = snapshotOptions();
+            // Options đã snapshot một lần khi bấm Start — không đọc lại control UI.
+            if (!item.options) {
+              item.status = "error";
+              item.error = "Thiếu options snapshot (bấm Start lại).";
+              renderQueue();
+              continue;
+            }
             renderQueue();
             showError("");
             setRunning(true);
@@ -722,7 +728,7 @@
         const r = await fetch("/api/meta");
         if (!r.ok) throw new Error("Không tải được /api/meta");
         const data = await r.json();
-        modelEl.innerHTML = "";
+        modelEl.replaceChildren();
         (data.models || []).forEach((m) => {
           const opt = document.createElement("option");
           opt.value = m.key;
@@ -760,7 +766,7 @@
 
       function renderPreview() {
         const list = sentences.slice(0, 300);
-        previewBody.innerHTML = "";
+        previewBody.replaceChildren();
         previewEmpty.hidden = list.length > 0;
         list.forEach((s) => {
           const tr = document.createElement("tr");
@@ -805,7 +811,7 @@
           }
         });
         ids.sort((a, b) => Number(a) - Number(b));
-        speakerNamesEl.innerHTML = "";
+        speakerNamesEl.replaceChildren();
         if (!ids.length) {
           $("speakerSection").hidden = true;
           return;
@@ -920,10 +926,10 @@
             showError("Vui lòng chọn file audio hoặc video trước (File > Mở… hoặc kéo thả).");
             return;
           }
-          // Snapshot options onto waiting items that lack options
+          // Snapshot options MỘT LẦN khi bắt đầu batch — processQueue không ghi đè.
           const opts = snapshotOptions();
           queue.forEach((q) => {
-            if (q.status === "wait" && !q.options) q.options = opts;
+            if (q.status === "wait") q.options = opts;
           });
           processQueue();
           return;

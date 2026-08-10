@@ -6,7 +6,6 @@ import os
 import socket
 import subprocess
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -124,6 +123,11 @@ def test_token_compare_constant_time_and_missing():
     assert runtime.tokens_match(None, "abc") is False
     assert runtime.tokens_match("abc", None) is False
     assert runtime.tokens_match("", "abc") is False
+    # Unequal length: still False, only via compare_digest (no early len branch leak).
+    assert runtime.tokens_match("short", "much-longer-token-value") is False
+    assert runtime.tokens_match("much-longer-token-value", "short") is False
+    # Strip normalization
+    assert runtime.tokens_match("  abc  ", "abc") is True
 
 
 # ---------------------------------------------------------------------------
@@ -210,6 +214,20 @@ def test_validate_local_path_windows_reparse_helper(monkeypatch, tmp_path):
     monkeypatch.setattr(runtime, "_is_windows_reparse", lambda p: p.name == "j.wav")
     monkeypatch.setattr(sys, "platform", "win32")
     with pytest.raises(ValueError, match="(?i)reparse|junction"):
+        runtime.validate_local_media_path(str(f))
+
+
+def test_validate_local_path_windows_reparse_api_failure_fail_closed(monkeypatch, tmp_path):
+    """API GetFileAttributes lỗi → reject path (fail-closed), không accept."""
+    f = tmp_path / "x.wav"
+    f.write_bytes(b"x")
+
+    def boom(_p):
+        raise OSError(5, "GetFileAttributesW failed")
+
+    monkeypatch.setattr(runtime, "_is_windows_reparse", boom)
+    monkeypatch.setattr(sys, "platform", "win32")
+    with pytest.raises(ValueError, match="(?i)thuộc tính|reparse|attribute"):
         runtime.validate_local_media_path(str(f))
 
 
@@ -621,14 +639,14 @@ def test_ready_line_format():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.timeout(45)
+@pytest.mark.timeout(60)
 def test_subprocess_ready_healthz_shutdown(tmp_path, monkeypatch):
-    """Chạy python -m app.server, đọc READY, healthz, shutdown, exit."""
+    """Chạy python -m app.server; đọc stdout async tới exit; đúng 1 READY; exit 0."""
+    import threading
+    import urllib.request
+
     env = os.environ.copy()
     env["VITRANSCRIPT_INSTANCE_TOKEN"] = "e2e-token-test-0123456789abcdef"
-    # Cô lập data dir
-    if sys.platform == "darwin":
-        pass
     env["XDG_DATA_HOME"] = str(tmp_path / "data")
     env["PYTHONUNBUFFERED"] = "1"
 
@@ -641,29 +659,31 @@ def test_subprocess_ready_healthz_shutdown(tmp_path, monkeypatch):
         text=True,
         bufsize=1,
     )
-    ready_port = None
-    ready_lines = []
-    deadline = time.time() + 30
-    try:
-        assert proc.stdout is not None
-        while time.time() < deadline:
-            line = proc.stdout.readline()
-            if not line and proc.poll() is not None:
-                break
-            if not line:
-                time.sleep(0.05)
-                continue
-            line = line.rstrip("\n")
-            m = runtime.READY_LINE_RE.match(line)
-            if m:
-                ready_lines.append(line)
-                ready_port = int(m.group(1))
-                break
-        assert ready_port is not None, f"không thấy READY; exit={proc.poll()}"
-        assert len(ready_lines) == 1
 
-        import urllib.error
-        import urllib.request
+    lines: list[str] = []
+    ready_event = threading.Event()
+    ready_port_box: list[int] = []
+
+    def _reader() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            line = line.rstrip("\n\r")
+            lines.append(line)
+            m = runtime.READY_LINE_RE.match(line)
+            if m and not ready_port_box:
+                ready_port_box.append(int(m.group(1)))
+                ready_event.set()
+        # EOF when process closes stdout
+
+    reader_t = threading.Thread(target=_reader, daemon=True)
+    reader_t.start()
+
+    try:
+        # True deadline: wait for READY without blocking forever on readline in main.
+        assert ready_event.wait(timeout=30), (
+            f"không thấy READY trong 30s; exit={proc.poll()}; lines={lines!r}"
+        )
+        ready_port = ready_port_box[0]
 
         url = f"http://127.0.0.1:{ready_port}/healthz"
         with urllib.request.urlopen(url, timeout=2) as resp:
@@ -679,12 +699,17 @@ def test_subprocess_ready_healthz_shutdown(tmp_path, monkeypatch):
             assert resp.status == 202
 
         try:
-            proc.wait(timeout=8)
+            proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=3)
             pytest.fail("sidecar không thoát sau shutdown")
-        assert proc.returncode == 0 or proc.returncode is not None
+
+        reader_t.join(timeout=3)
+        # Đếm TẤT CẢ READY sau khi process exit (reader drain hết stdout).
+        ready_lines = [ln for ln in lines if runtime.READY_LINE_RE.match(ln)]
+        assert len(ready_lines) == 1, f"expected exactly 1 READY, got {ready_lines!r}"
+        assert proc.returncode == 0, f"expected exit 0, got {proc.returncode}"
     finally:
         if proc.poll() is None:
             proc.kill()
