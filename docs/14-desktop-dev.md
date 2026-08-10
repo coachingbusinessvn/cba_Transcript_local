@@ -179,7 +179,7 @@ Spec tự động đọc distribution metadata của `sherpa-onnx-core`, đưa t
 - **Cơ chế:**
   1. Kiểm tra ưu tiên các bản build **NONFREE** / **GPL** / **LGPL** chính thức.
   2. Thực hiện trích xuất `ffmpeg -version` để lấy thông tin version line và configuration flags.
-  3. Ghi manifest chẩn đoán tại `desktop/pyinstaller/dist/sidecar-manifest.json` và tạo thư mục `ffmpeg-notices/` chứa `SOURCE_OFFER.txt` cùng giấy phép bản quyền tương ứng.
+  3. Ghi manifest chẩn đoán tại `desktop/pyinstaller/dist/sidecar-manifest.json` và tạo thư mục `desktop/pyinstaller/ffmpeg-notices/` chứa `SOURCE_OFFER.txt` cùng giấy phép bản quyền tương ứng *(lưu ý: các file và thư mục này được tạo ra khi build, không có sẵn trong repo)*.
   4. Hai file `ffmpeg` và `ffprobe` được bundle trực tiếp vào thư mục `binaries` cấp phát của sidecar.
   5. Khi runtime có `sys.frozen`, module `app.media` sẽ ưu tiên sử dụng cặp `ffmpeg/ffprobe` đã đóng gói này.
 
@@ -194,7 +194,7 @@ Spec tự động đọc distribution metadata của `sherpa-onnx-core`, đưa t
   - Windows: `.\desktop\scripts\build-windows.ps1`
 
 **Target Triple Naming Rules:**  
-Tauri v2 yêu cầu file sidecar trong `desktop/src-tauri/binaries/` phải tuân theo đúng đặt tên target triple của host build:
+Tauri v2 yêu cầu file sidecar trong thư mục `desktop/src-tauri/binaries/` *(tạo ra khi build, không có sẵn trong repo)* phải tuân theo đúng quy tắc đặt tên target triple của host build:
 - Linux x64: `vitranscript-sidecar-x86_64-unknown-linux-gnu`
 - macOS arm64: `vitranscript-sidecar-aarch64-apple-darwin`
 - macOS Intel: `vitranscript-sidecar-x86_64-apple-darwin`
@@ -212,8 +212,9 @@ desktop/
 ├── pyinstaller/
 │   ├── sidecar_entry.py          # Entrypoint gọi app.server.main()
 │   ├── vitranscript-sidecar.spec # Cấu hình PyInstaller spec
-│   ├── _ffmpeg_resolve.json      # File cache thông tin ffmpeg binary đã download
-│   └── dist/                     # Thư mục chứa sidecar binary & manifest sau khi build
+│   ├── _ffmpeg_resolve.json      # [Tạo ra khi build] Cache thông tin ffmpeg binary đã download
+│   ├── ffmpeg-notices/           # [Tạo ra khi build] Thư mục chứa SOURCE_OFFER.txt & giấy phép ffmpeg
+│   └── dist/                     # [Tạo ra khi build] Thư mục chứa sidecar binary (vitranscript-sidecar) & manifest (sidecar-manifest.json)
 ├── scripts/
 │   ├── build-sidecar.sh / .ps1   # Script build PyInstaller sidecar
 │   ├── build-linux.sh            # Script build toàn bộ artifact cho Linux (.AppImage, .deb)
@@ -226,6 +227,7 @@ desktop/
     ├── tauri.linux.conf.json     # Cấu hình bundle cho Linux (appimage, deb)
     ├── tauri.macos.conf.json     # Cấu hình bundle cho macOS (dmg)
     ├── tauri.windows.conf.json   # Cấu hình bundle cho Windows (nsis)
+    ├── binaries/                 # [Tạo ra khi build] Thư mục chứa sidecar binary theo target triple cho Tauri
     ├── capabilities/             # Cấu hình phân quyền Tauri Remote Capabilities
     └── src/
         ├── main.rs               # Main entry point & Tauri App initialization
@@ -233,6 +235,9 @@ desktop/
         ├── native.rs             # Bridge Native File Picker, Native Drag-Drop & Grant-set
         └── job_options.rs        # Mapping Struct dữ liệu tham số job
 ```
+
+> [!NOTE]
+> **Lưu ý về các file/thư mục sinh ra khi build:** Các đường dẫn được đánh dấu `[Tạo ra khi build]` (`dist/`, `ffmpeg-notices/`, `_ffmpeg_resolve.json`, `desktop/src-tauri/binaries/`) không có sẵn trong repo mà được tự động sinh ra trong quá trình chạy script build và bị bỏ qua bởi Git (`.gitignore`).
 
 ---
 
@@ -271,8 +276,8 @@ File log của Sidecar và Tauri Shell được ghi trực tiếp tại thư m�
 
 - **Triệu chứng:** Xuất hiện Hộp thoại thông báo lỗi tiếng Việt khi khởi động app: `"Không thể khởi động dịch vụ nhận dạng (Timeout/Sidecar exited)"`.
 - **Nguyên nhân thường gặp:**
-  1. Lần đầu giải nén PyInstaller `onefile` trên đĩa cứng đĩa HDD chậm vượt quá 60 giây.
-  2. Port trong dải `8756..8805` bị tường lửa hoặc phần mềm diệtไวรัส (Antivirus) chặn loopback bind.
+  1. Lần đầu giải nén PyInstaller `onefile` trên đĩa cứng HDD chậm vượt quá 60 giây.
+  2. Port trong dải `8756..8805` bị tường lửa hoặc phần mềm diệt virus (Antivirus) chặn loopback bind.
 - **Cách khắc phục & Debug:**
   - Chạy thử sidecar trực tiếp từ Terminal để xem log stdout:
     ```bash

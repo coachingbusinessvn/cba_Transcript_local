@@ -77,7 +77,7 @@ Khi chạy file cài đặt hoặc file thực thi trên Windows, cửa sổ **W
 
 ## 3. Lần đầu Tải Model & Chế độ Offline
 
-- **Khởi chạy lần đầu tiên:** Ứng dụng cần có kết nối mạng Internet để tải các model nhận dạng giọng nói (PhoWhisper), model phân biệt người nói (Diarization) và model phục hồi dấu câu từ HuggingFace về đĩa cứng. Dung lượng tải về dao động từ ~100 MB đến ~1.5 GB tùy thuộc vào model bạn chọn.
+- **Khởi chạy lần đầu tiên:** Ứng dụng cần có kết nối mạng Internet để tải các model nhận dạng giọng nói (PhoWhisper/Whisper), model phân biệt người nói (Diarization ~30 MB) và model phục hồi dấu câu (ViBERT-CAPU ~110 MB) từ Hugging Face về đĩa cứng. Dung lượng model nhận dạng dao động từ ~490 MB (small) đến ~3 GB (large) tùy thuộc vào model bạn chọn (có thể cộng thêm ~140 MB cho diarization và dấu câu).
 - **Các lần khởi chạy sau:** Sau khi model đã được tải về máy thành công, ứng dụng hoạt động **hoàn toàn offline**. Bạn có thể tắt kết nối Wifi/Mạng internet mà ứng dụng vẫn chuyển đổi văn bản bình thường.
 
 ---
@@ -89,7 +89,7 @@ Nhấp đúp biểu tượng ứng dụng **ViTranscript**. Cửa sổ native s�
 
 ### 4.2 Thêm File Audio/Video & Hàng chờ (Queue)
 Bạn có thể chọn file bằng các cách sau:
-- Vào menu ứng dụng: Chọn **File > Mở…** (hoặc phím tắt `Ctrl+O` / `Cmd+O`).
+- Vào menu ứng dụng: Chọn **File > Mở…**.
 - Hoặc bấm nút **Chọn file audio / video** trên màn hình.
 - Hoặc **kéo-thả trực tiếp** một hoặc nhiều file từ máy tính vào trong cửa sổ ứng dụng.
 
@@ -103,8 +103,9 @@ Trước khi bấm nút **Bắt đầu**, bạn có thể tùy chỉnh các thô
 1. **Chọn Model:**
    - `phowhisper-small` *(Mặc định — Khuyên dùng)*: Tốc độ nhanh, nhận dạng tiếng Việt rất tốt, dung lượng nhẹ (~490 MB).
    - `phowhisper-medium`: Chính xác hơn small, tốc độ trung bình (~1.5 GB).
-   - `phowhisper-large`: Độ chính xác cao nhất cho tiếng Việt, cần máy có RAM từ 8GB trở lên (~3 GB).
+   - `phowhisper-large`: Độ chính xác cao nhất cho tiếng Việt, chậm hơn, cần máy có RAM từ 8 GB trở lên (~3 GB).
    - `large-v3-turbo`: Phù hợp cho các buổi họp song ngữ Việt - Anh (~1.6 GB).
+   - `whisper-small`: Model Whisper Small gốc đa ngôn ngữ, nhẹ (~490 MB).
 2. **Ngôn ngữ:** Mặc định `Tiếng Việt` (`vi`).
 3. **Phân biệt người nói (Diarization):** Bật tùy chọn này để ứng dụng tự động gán nhãn `Người nói 1`, `Người nói 2`...
 4. **Số người nói:** Để `0` nếu muốn ứng dụng tự đoán số lượng người tham gia hội thoại.
