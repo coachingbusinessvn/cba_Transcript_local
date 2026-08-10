@@ -28,24 +28,91 @@ if bad:
 print("OK: no torch/tensorflow")
 PY
 
-echo "==> resolve ffmpeg/ffprobe for bundle"
+echo "==> resolve ffmpeg/ffprobe for bundle + license audit"
 uv run python - <<'PY'
-import json, hashlib, platform, sys
+import json, hashlib, platform, re, subprocess, sys
 from pathlib import Path
 import static_ffmpeg.run as sfr
 
 ff, fp = sfr.get_or_fetch_platform_executables_else_raise()
+
 def sha(p):
     h = hashlib.sha256()
     with open(p, "rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
+
+def audit_ffmpeg(path: str) -> dict:
+    """Run ffmpeg -version; require version + configuration; classify GPL/LGPL."""
+    try:
+        proc = subprocess.run(
+            [path, "-version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+    except OSError as e:
+        print(f"ERROR: cannot execute ffmpeg for audit: {e}", file=sys.stderr)
+        sys.exit(1)
+    text = (proc.stdout or "") + "\n" + (proc.stderr or "")
+    if proc.returncode not in (0,):
+        # ffmpeg -version usually exits 0; still parse if output present
+        if "ffmpeg version" not in text.lower() and "version" not in text.lower():
+            print(f"ERROR: ffmpeg -version failed (code={proc.returncode})", file=sys.stderr)
+            print(text[:2000], file=sys.stderr)
+            sys.exit(1)
+    version_line = ""
+    configuration = ""
+    for line in text.splitlines():
+        ls = line.strip()
+        if not version_line and ls.lower().startswith("ffmpeg version"):
+            version_line = ls
+        if ls.lower().startswith("configuration:"):
+            configuration = ls.split(":", 1)[1].strip() if ":" in ls else ls
+    if not version_line:
+        print("ERROR: could not parse ffmpeg version line from -version output", file=sys.stderr)
+        print(text[:2000], file=sys.stderr)
+        sys.exit(1)
+    if not configuration:
+        print("ERROR: could not parse ffmpeg configuration line — cannot audit license", file=sys.stderr)
+        print(text[:2000], file=sys.stderr)
+        sys.exit(1)
+    cfg_l = configuration.lower()
+    # GPL if --enable-gpl present (and not only disabled); LGPL otherwise for typical static builds.
+    if re.search(r"--enable-gpl\b", cfg_l) and not re.search(r"--disable-gpl\b", cfg_l):
+        license_kind = "GPL"
+    elif re.search(r"--enable-version3\b", cfg_l) and re.search(r"--enable-gpl\b", cfg_l):
+        license_kind = "GPL"
+    elif re.search(r"--enable-nonfree\b", cfg_l):
+        license_kind = "NONFREE"
+    else:
+        license_kind = "LGPL"
+    if license_kind == "NONFREE":
+        print("ERROR: ffmpeg build is NONFREE — cannot distribute", file=sys.stderr)
+        sys.exit(1)
+    return {
+        "version_line": version_line,
+        "configuration": configuration,
+        "license": license_kind,
+        "version_exit_code": proc.returncode,
+    }
+
+audit = audit_ffmpeg(ff)
 meta = {
+    # Do not store absolute personal paths in committed artifacts — basename only for display;
+    # full path kept only for local build env files.
+    "ffmpeg_basename": Path(ff).name,
+    "ffprobe_basename": Path(fp).name,
     "ffmpeg_path": ff,
     "ffprobe_path": fp,
     "ffmpeg_sha256": sha(ff),
     "ffprobe_sha256": sha(fp),
+    "ffmpeg_version_line": audit["version_line"],
+    "ffmpeg_configuration": audit["configuration"],
+    "ffmpeg_license": audit["license"],
+    "source_package": "static-ffmpeg (PyPI)",
     "os": platform.system(),
     "arch": platform.machine(),
     "python": sys.version.split()[0],
@@ -53,11 +120,12 @@ meta = {
 out_dir = Path("desktop/pyinstaller")
 out_dir.mkdir(parents=True, exist_ok=True)
 (out_dir / "_ffmpeg_resolve.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-# Paths only — no progress text (static_ffmpeg may print to stdout)
 (out_dir / "_ffmpeg.path").write_text(ff, encoding="utf-8")
 (out_dir / "_ffprobe.path").write_text(fp, encoding="utf-8")
 print("OK resolved ffmpeg", ff, file=sys.stderr)
 print("OK resolved ffprobe", fp, file=sys.stderr)
+print("OK ffmpeg license=", audit["license"], file=sys.stderr)
+print("OK", audit["version_line"], file=sys.stderr)
 PY
 export VITRANSCRIPT_BUNDLE_FFMPEG="$(cat desktop/pyinstaller/_ffmpeg.path)"
 export VITRANSCRIPT_BUNDLE_FFPROBE="$(cat desktop/pyinstaller/_ffprobe.path)"
@@ -121,7 +189,7 @@ if [[ "$MODE" == "onefile" || "$MODE" == "both" ]]; then
   fi
 fi
 
-# Write manifest
+# Write manifest (no personal absolute paths in published fields)
 uv run python - <<'PY'
 import hashlib, json, platform, sys
 from pathlib import Path
@@ -136,6 +204,14 @@ p = root / "desktop/pyinstaller/_ffmpeg_resolve.json"
 if p.is_file():
     ff_meta = json.loads(p.read_text(encoding="utf-8"))
 
+# Fail if ffmpeg license audit missing
+if not ff_meta.get("ffmpeg_license") or not ff_meta.get("ffmpeg_version_line"):
+    print("ERROR: ffmpeg audit fields missing in _ffmpeg_resolve.json", file=sys.stderr)
+    sys.exit(1)
+if not ff_meta.get("ffmpeg_configuration"):
+    print("ERROR: ffmpeg configuration missing — refuse to publish artifact", file=sys.stderr)
+    sys.exit(1)
+
 def sha(path: Path):
     if not path.is_file():
         return None
@@ -143,14 +219,30 @@ def sha(path: Path):
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
-    return {"path": str(path), "size": path.stat().st_size, "sha256": h.hexdigest()}
+    return {
+        "name": path.name,
+        "size": path.stat().st_size,
+        "sha256": h.hexdigest(),
+    }
+
+# Public ffmpeg block: strip absolute paths
+ff_public = {
+    "ffmpeg_basename": ff_meta.get("ffmpeg_basename"),
+    "ffprobe_basename": ff_meta.get("ffprobe_basename"),
+    "ffmpeg_sha256": ff_meta.get("ffmpeg_sha256"),
+    "ffprobe_sha256": ff_meta.get("ffprobe_sha256"),
+    "ffmpeg_version_line": ff_meta.get("ffmpeg_version_line"),
+    "ffmpeg_configuration": ff_meta.get("ffmpeg_configuration"),
+    "ffmpeg_license": ff_meta.get("ffmpeg_license"),
+    "source_package": ff_meta.get("source_package", "static-ffmpeg (PyPI)"),
+}
 
 manifest = {
     "created_at": datetime.now(timezone.utc).isoformat(),
     "os": platform.system(),
     "arch": platform.machine(),
     "python": sys.version.split()[0],
-    "ffmpeg": ff_meta,
+    "ffmpeg": ff_public,
     "onefile": sha(onefile) if onefile.is_file() else None,
     "onedir": sha(onedir) if onedir.is_file() else None,
 }

@@ -30,12 +30,12 @@
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
-| D0 | Desktop backend contract (READY, /healthz, local job, shutdown) | 🟢 | `app/server_runtime.py` + `tests/test_server_desktop.py` (52 test) |
-| D1 | PyInstaller sidecar spike | 🟢 | onedir+onefile self-test PASS; ~455MB onefile; ffmpeg n8.0.1 bundled |
-| D2 | Tauri shell + lifecycle | 🟢 | `desktop/src-tauri`; cargo test --lib --no-default-features (6 pass) |
-| D3 | Native file bridge + menu + queue UI | 🟢 | `native.rs` + queue in `index.html`; no tray |
-| D4 | Icon + build scripts + CI | 🟢 | build-linux/macos/windows + `.github/workflows/desktop-build.yml` |
-| D5 | E2E Ubuntu scripts | 🟢 | `scripts/gen_test_audio_linux.sh`, `e2e_sidecar_linux.py`, `smoke_desktop_linux.sh` |
+| D0 | Desktop backend contract (READY, /healthz, local job, shutdown) | 🟢 | reparse fail-closed + token hash+compare_digest; 119 pytest |
+| D1 | PyInstaller sidecar spike | 🟢 | ffmpeg license audit (version+configuration+GPL/LGPL); Windows manifest |
+| D2 | Tauri shell + lifecycle | 🟢 | Win Job Object; Unix process_group; READY channel deadline; cargo test --lib 11 |
+| D3 | Native file bridge + menu + queue UI | 🟢 | numSpeakers camelCase; queue snapshot once; no innerHTML |
+| D4 | Icon + build scripts + CI | 🟢 | arch gate; CI cargo test + Xvfb smoke + manifest `if-no-files-found: error` |
+| D5 | E2E Ubuntu scripts | 🟢 | scripts ready; full e2e Ubuntu still 🔵 until CI/host green |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
 

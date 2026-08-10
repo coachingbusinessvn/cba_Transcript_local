@@ -38,7 +38,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 > _Phần này tự động cập nhật khi commit vào main._
 
-**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D5 🟢 (code), e2e Ubuntu full 🔵
+**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D5 🟢 (code + review-r1 fixes), e2e Ubuntu full 🔵
 
 **Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
 
@@ -55,7 +55,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`) | 🟢 | 118 passed, 1 deselected |
+| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`) | 🟢 | 119 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py` + `server_runtime.py`) | 🟢 | READY/healthz/local/shutdown; 409 1 job |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
@@ -64,20 +64,20 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
-| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | `server_runtime.py` + 52 unit test |
-| D1 | PyInstaller sidecar | 🟢 | onedir+onefile self-test PASS (native + ffmpeg) |
-| D2 | Tauri shell + lifecycle | 🟢 | READY/health/shutdown; cargo test --lib 6 pass |
-| D3 | Native file bridge + queue UI | 🟢 | pick/start_local_job + queue HTML; no tray |
-| D4 | Icon + build scripts + CI | 🟢 | build-*.sh/ps1 + desktop-build.yml matrix |
-| D5 | E2E Ubuntu scripts | 🟢 | gen_test_audio / e2e_sidecar / smoke_desktop (chạy full: agent sau) |
+| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | reparse fail-closed + token compare_digest; 119 unit test |
+| D1 | PyInstaller sidecar | 🟢 | ffmpeg license audit gate + Windows manifest schema |
+| D2 | Tauri shell + lifecycle | 🟢 | Job Object (Win) + setpgid fail/kill group (Unix) + READY channel deadline; cargo test --lib 11 |
+| D3 | Native file bridge + queue UI | 🟢 | numSpeakers camelCase; queue snapshot 1 lần; no innerHTML |
+| D4 | Icon + build scripts + CI | 🟢 | arch mismatch gate; CI cargo test + Xvfb smoke + manifest fail |
+| D5 | E2E Ubuntu scripts | 🟢 | scripts ready; **full e2e chưa chạy xanh trên CI host này** |
 
 **Rủi ro / việc treo đang mở:**
-- [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
+- [ ] Verify installer trên Windows thật (Job Object spawn chưa verify native — host Linux)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
 - [ ] Desktop: full e2e Ubuntu (Xvfb + AppImage) + Mac/Win native verify trên máy thật
-- [ ] Host này thiếu WebKitGTK/pkg-config — `cargo tauri build` cần apt deps (CI ubuntu-22.04)
+- [ ] Host thiếu WebKitGTK/pkg-config — `cargo tauri build` / `cargo test` default-features cần apt deps
 <!-- auto-update: end -->
 
 

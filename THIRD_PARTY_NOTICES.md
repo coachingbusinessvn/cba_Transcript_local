@@ -9,22 +9,39 @@ they download on first use into the user data directory.
 - **Component:** `ffmpeg`, `ffprobe` binaries
 - **Source package at build:** `static-ffmpeg` (PyPI) resolves platform
   executables used by the build scripts (`desktop/scripts/build-sidecar.*`).
-- **License:** FFmpeg is typically LGPL/GPL depending on build configuration.
-  The exact build flags and version of the binaries resolved on each CI host
-  are recorded in `desktop/pyinstaller/dist/sidecar-manifest.json` (ffmpeg
-  SHA-256 + path metadata) at build time.
+- **License gate (build-time):** `build-sidecar.sh` / `build-sidecar.ps1` run
+  `ffmpeg -version`, parse the **version line** and full **configuration**
+  flags, classify the binary as **GPL** or **LGPL** (fail the build if
+  `--enable-nonfree` is present, or if version/configuration cannot be audited).
+  Results are written to `desktop/pyinstaller/dist/sidecar-manifest.json` under
+  `ffmpeg.ffmpeg_version_line`, `ffmpeg.ffmpeg_configuration`,
+  `ffmpeg.ffmpeg_license`, and SHA-256 digests. **Do not ship an artifact
+  whose manifest lacks these fields.**
+- **Distribution duties:**
+  - **LGPL** build: you may distribute the binary with this notice and offer
+    corresponding source for FFmpeg under LGPL terms.
+  - **GPL** build: the combined work’s distribution obligations follow GPL for
+    the FFmpeg portion; ship GPL license text and corresponding source offer as
+    required by the FFmpeg project for that build.
 - **Runtime:** when `sys.frozen`, `app.media` prefers the pair bundled under
   `ffmpeg/` inside the PyInstaller archive; development builds may use system
   PATH or the `static-ffmpeg` package fetch.
 
-### Provenance snapshot (Linux x86_64 build host, 2026-08-10)
+### How to re-audit after a build
 
-- **Version string:** `ffmpeg version n8.0.1-48-g0592be14ff-20260116` (static-ffmpeg resolve)
-- **SHA-256 (ffmpeg):** `ff45e18f5823f3036e419b22de5582ee5c956907910465e94e6d56df0aebb470`
-- **SHA-256 (ffprobe):** `9960ffd53be2a73bf2d33849ab792ba405e3701a996917c6f6b5d28bc9354296`
-- **Resolved via:** PyPI `static-ffmpeg` → `static_ffmpeg/bin/linux/{ffmpeg,ffprobe}`
-- Releasers must re-record hashes from `desktop/pyinstaller/dist/sidecar-manifest.json`
-  for each published artifact.
+```bash
+# After desktop/scripts/build-sidecar.sh (or .ps1):
+python3 -c "import json;print(json.load(open('desktop/pyinstaller/dist/sidecar-manifest.json'))['ffmpeg'])"
+```
+
+Releasers must paste the actual `ffmpeg_version_line`, `ffmpeg_license`, and
+SHA-256 from the manifest of the **published** artifact into release notes.
+
+### Provenance note
+
+Exact version/configuration vary by OS/arch and by the `static-ffmpeg` wheel
+revision. There is **no** fixed “always LGPL” claim — only the audited
+`ffmpeg_license` field in the sidecar manifest for that build is authoritative.
 
 ## Native ML runtimes (sidecar)
 
