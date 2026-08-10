@@ -715,22 +715,38 @@ mod runtime {
                 // CR-5: GetExitCodeProcess returns 259 (STILL_ACTIVE) for a still-running
                 // process, but a process can also exit with code 259. Use WaitForSingleObject
                 // with 0 timeout to decide whether the handle is signaled (exited).
+                // NEW-2: match WAIT_OBJECT_0 / WAIT_TIMEOUT / WAIT_FAILED explicitly —
+                // do not treat WAIT_FAILED as "still running" without logging.
+                const WAIT_OBJECT_0: u32 = 0;
+                const WAIT_TIMEOUT: u32 = 0x102; // 258
+                // WAIT_FAILED == 0xFFFFFFFF
                 unsafe {
                     if self.process.is_null() || self.process == INVALID_HANDLE_VALUE {
                         return Some(-1);
                     }
-                    // WAIT_OBJECT_0 == 0 → process has exited (even if exit code is 259).
-                    // WAIT_TIMEOUT == 258 → still running.
                     let wait = WaitForSingleObject(self.process, 0);
-                    if wait != 0 {
-                        return None;
+                    match wait {
+                        WAIT_OBJECT_0 => {
+                            // Process has exited (even if exit code is 259).
+                            let mut code: u32 = 0;
+                            if GetExitCodeProcess(self.process, &mut code) == 0 {
+                                return Some(-1);
+                            }
+                            // Return actual code (may be STILL_ACTIVE=259 if process exited with that).
+                            Some(code as i32)
+                        }
+                        WAIT_TIMEOUT => None, // still running
+                        _ => {
+                            // WAIT_FAILED or unexpected status — log GetLastError; do not
+                            // silently pretend the process is healthy forever.
+                            let err = GetLastError();
+                            eprintln!(
+                                "WinProc::try_wait: WaitForSingleObject returned {wait:#x} \
+                                 (GetLastError={err}); treating as not exited"
+                            );
+                            None
+                        }
                     }
-                    let mut code: u32 = 0;
-                    if GetExitCodeProcess(self.process, &mut code) == 0 {
-                        return Some(-1);
-                    }
-                    // Process has exited; return actual code (may be STILL_ACTIVE=259).
-                    Some(code as i32)
                 }
             }
 
