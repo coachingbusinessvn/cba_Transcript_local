@@ -38,7 +38,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 > _Phần này tự động cập nhật khi commit vào main._
 
-**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D5 🟢 (code + review-r1 + review-r2 + e2e-script fix), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
+**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D6 🟢 (code + review + e2e + docs dev/user), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
 
 **Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
 
@@ -70,6 +70,8 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | D3 | Native file bridge + queue UI | 🟢 | batch freeze membership + retry; least-privilege capability |
 | D4 | Icon + build scripts + CI | 🟢 | offline fail closed; CI shared data-home + docker offline; abs path mount; tauri CLI cwd |
 | D5 | E2E Ubuntu scripts | 🟢 | sidecar U22 online+offline PASS; E2E-1..4 script fixes (abs mount, no chmod :ro, Xvfb DISPLAY, group-kill test) |
+| D6 | Docs desktop dev + user (`docs/14-desktop-dev.md`, `docs/15-desktop-user.md`) | 🟢 | Tài liệu dev (kiến trúc, HĐ, PyInstaller, CI) + user (cài đặt, Gatekeeper, cách dùng) |
+
 
 **Rủi ro / việc treo đang mở:**
 - [ ] Verify installer trên Windows thật (Job Object spawn chưa verify native — host Linux)

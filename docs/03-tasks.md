@@ -36,6 +36,8 @@
 | D3 | Native file bridge + menu + queue UI | 🟢 | batch freeze + retry; least-privilege capability |
 | D4 | Icon + build scripts + CI | 🟢 | binary fail-closed; CI abs path mount; tauri CLI cwd (no --manifest-path) |
 | D5 | E2E Ubuntu scripts | 🟢 | sidecar U22 online+offline PASS; E2E-1..4 fixes; Xvfb/AppImage full still 🔵 (host deps) |
+| D6 | Docs desktop dev + user (`docs/14-desktop-dev.md`, `docs/15-desktop-user.md`) | 🟢 | Tài liệu dev (kiến trúc, HĐ, PyInstaller, CI) + user (cài đặt, vượt Gatekeeper, cách dùng) |
+
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
 
