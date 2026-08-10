@@ -86,7 +86,7 @@ docs/
 <!-- status-block: start -->
 ## Current status
 
-**Progress:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D6 🟢 (+ CR-1..CR-10 high-effort review fixes), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
+**Progress:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D6 🟢 (+ CR-1..CR-10 + residual RESIDUAL-1/2, NEW-1/2), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
 
 **App modules in `app/`:**
 `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
@@ -104,9 +104,9 @@ docs/
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 138 passed, 1 deselected (CR-3/4/6 tests) |
+| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 149 passed, 1 deselected (CR-3/4/6 + residual source/LGPL tests) |
 | 9 | Web server FastAPI (`app/server.py` + `server_runtime.py`) | 🟢 | READY/healthz/local/shutdown; 409 1 job; num_speakers 0..20 → 400 (CR-6) |
-| 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | queue: 409 limited retry, retry options, pollFailCount, formatDetail (CR-1/2/6/7) |
+| 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | queue: activeBatchOptions (NEW-1), 409 limited retry, pollFailCount, formatDetail (CR-1/2/6/7) |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
@@ -114,9 +114,9 @@ docs/
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 | D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | reparse fail-closed + token compare_digest |
-| D1 | PyInstaller sidecar | 🟢 | ffmpeg audit GPLv2/v3 + LGPLv2.1/v3 (CR-4); NONFREE-first |
-| D2 | Tauri shell + lifecycle | 🟢 | CR-5 WaitForSingleObject; CR-9 Lazy READY; CR-10 url::Url; cargo test --lib 15 |
-| D3 | Native file bridge + queue UI | 🟢 | menu Open = pick_and_grant_paths (CR-8); queue CR-1/2/7 |
+| D1 | PyInstaller sidecar | 🟢 | ffmpeg audit: binary vs corresponding source (RESIDUAL-1); LGPLv3+GPLv3 texts (RESIDUAL-2); NONFREE-first |
+| D2 | Tauri shell + lifecycle | 🟢 | CR-5 WaitForSingleObject + NEW-2 WAIT_FAILED log; CR-9 Lazy READY; CR-10 url::Url; cargo 15 |
+| D3 | Native file bridge + queue UI | 🟢 | menu Open = pick_and_grant_paths (CR-8); queue CR-1/2/7 + activeBatchOptions |
 | D4 | Icon + build scripts + CI | 🟢 | binary fail closed; CI shared data-home + docker offline; abs path mount; tauri CLI cwd |
 | D5 | E2E Ubuntu scripts | 🟢 | sidecar U22 online+offline PASS; E2E-1..4 script fixes (abs mount, no chmod :ro, Xvfb DISPLAY, group-kill test) |
 | D6 | Docs desktop dev + user (`docs/14-desktop-dev.md`, `docs/15-desktop-user.md`) | 🟢 | Tài liệu dev (kiến trúc, HĐ, PyInstaller, CI) + user (cài đặt, Gatekeeper, cách dùng) |
