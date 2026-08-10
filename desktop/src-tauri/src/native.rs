@@ -48,11 +48,8 @@ pub struct LocalJobResponse {
     pub body: String,
 }
 
-#[tauri::command]
-pub async fn pick_local_files(
-    app: AppHandle,
-    state: State<'_, Arc<AppState>>,
-) -> Result<Vec<String>, String> {
+/// Shared picker + grant path (CR-8): one code path for File>Open menu and invoke command.
+pub fn pick_and_grant_paths(app: &AppHandle, grants: &GrantSet) -> Result<Vec<String>, String> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = std::sync::mpsc::channel();
     app.dialog()
@@ -78,10 +75,18 @@ pub async fn pick_local_files(
         if !pb.is_absolute() {
             continue;
         }
-        state.grants.grant(&p);
+        grants.grant(&p);
         out.push(p);
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub async fn pick_local_files(
+    app: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<Vec<String>, String> {
+    pick_and_grant_paths(&app, &state.grants)
 }
 
 #[tauri::command]

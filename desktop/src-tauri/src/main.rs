@@ -3,7 +3,9 @@
 
 mod native;
 
-use native::{emit_paths_to_main, pick_local_files, start_local_job, AppState};
+use native::{
+    emit_paths_to_main, pick_and_grant_paths, pick_local_files, start_local_job, AppState,
+};
 use parking_lot::Mutex;
 use vitranscript_lib::sidecar::{self, resolve_sidecar_path, start_and_ready};
 use std::path::PathBuf;
@@ -143,33 +145,11 @@ fn main() {
             let state_menu = state_for_setup.clone();
             app.on_menu_event(move |app, event| match event.id().as_ref() {
                 "open" => {
+                    // CR-8: cùng đường picker+grant với invoke pick_local_files.
                     let app2 = app.clone();
                     let st = state_menu.clone();
                     std::thread::spawn(move || {
-                        let (tx, rx) = std::sync::mpsc::channel();
-                        app2.dialog()
-                            .file()
-                            .add_filter("Media", native::MEDIA_EXTENSIONS)
-                            .set_title("Chọn file audio/video")
-                            .pick_files(move |files| {
-                                let paths = files
-                                    .map(|list| {
-                                        list.into_iter()
-                                            .filter_map(|f| f.into_path().ok())
-                                            .map(|p| p.to_string_lossy().to_string())
-                                            .collect::<Vec<_>>()
-                                    })
-                                    .unwrap_or_default();
-                                let _ = tx.send(paths);
-                            });
-                        if let Ok(paths) = rx.recv() {
-                            let mut granted = Vec::new();
-                            for p in paths {
-                                if PathBuf::from(&p).is_absolute() {
-                                    st.grants.grant(&p);
-                                    granted.push(p);
-                                }
-                            }
+                        if let Ok(granted) = pick_and_grant_paths(&app2, &st.grants) {
                             emit_paths_to_main(&app2, granted);
                         }
                     });

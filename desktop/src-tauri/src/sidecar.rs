@@ -1,6 +1,7 @@
 //! Sidecar lifecycle helpers. Pure READY/health parsers always available;
 //! process spawn requires the `gui` feature (ureq/uuid).
 
+use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Deserialize;
 use thiserror::Error;
@@ -10,6 +11,11 @@ pub const SHUTDOWN_WAIT_SECS: u64 = 5;
 pub const HEALTH_POLL_MS: u64 = 100;
 pub const HEALTH_REQ_TIMEOUT_MS: u64 = 500;
 pub const KILL_GRACE_SECS: u64 = 2;
+
+/// Compile READY regex once (CR-9) — uvicorn logs every request; avoid recompile per line.
+static READY_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^VITRANSCRIPT_READY http://127\.0\.0\.1:(\d+)$").expect("READY regex")
+});
 
 #[derive(Debug, Error)]
 pub enum SidecarError {
@@ -31,8 +37,7 @@ pub enum SidecarError {
 
 /// Pure READY line parser (regex exact contract).
 pub fn parse_ready_line(line: &str) -> Option<u16> {
-    let re = Regex::new(r"^VITRANSCRIPT_READY http://127\.0\.0\.1:(\d+)$").unwrap();
-    let caps = re.captures(line.trim_end_matches(['\r', '\n']))?;
+    let caps = READY_RE.captures(line.trim_end_matches(['\r', '\n']))?;
     caps.get(1)?.as_str().parse().ok()
 }
 
@@ -106,35 +111,20 @@ pub fn validate_health_json(body: &str, expected_port: u16) -> Result<(), Sideca
 
 /// Exact-origin navigation guard: scheme=http, host=127.0.0.1, port matches sidecar.
 /// Rejects userinfo tricks like `http://127.0.0.1:8756@evil.example/`.
+/// CR-10: always use url::Url (crate is non-optional) — one parser for gui/non-gui.
 pub fn is_allowed_navigation(url: &str, expected_port: u16) -> bool {
     let s = url.trim();
     if s == "about:blank" {
         return true;
     }
-    #[cfg(feature = "gui")]
-    {
-        if let Ok(u) = url::Url::parse(s) {
-            return u.scheme() == "http"
-                && u.host_str() == Some("127.0.0.1")
-                && u.port() == Some(expected_port)
-                && u.username().is_empty()
-                && u.password().is_none();
-        }
+    let Ok(u) = url::Url::parse(s) else {
         return false;
-    }
-    #[cfg(not(feature = "gui"))]
-    {
-        if s.contains('@') {
-            return false;
-        }
-        let hostport = format!("127.0.0.1:{expected_port}");
-        let rest = match s.strip_prefix("http://") {
-            Some(r) => r,
-            None => return false,
-        };
-        let hp = rest.split(['/', '?', '#']).next().unwrap_or("");
-        hp == hostport
-    }
+    };
+    u.scheme() == "http"
+        && u.host_str() == Some("127.0.0.1")
+        && u.port() == Some(expected_port)
+        && u.username().is_empty()
+        && u.password().is_none()
 }
 
 pub fn host_target_triple() -> String {
@@ -707,8 +697,6 @@ mod runtime {
         };
         use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 
-        const STILL_ACTIVE: u32 = 259;
-
         pub struct WinProc {
             process: HANDLE,
             job: HANDLE,
@@ -724,19 +712,25 @@ mod runtime {
             }
 
             pub fn try_wait(&mut self) -> Option<i32> {
+                // CR-5: GetExitCodeProcess returns 259 (STILL_ACTIVE) for a still-running
+                // process, but a process can also exit with code 259. Use WaitForSingleObject
+                // with 0 timeout to decide whether the handle is signaled (exited).
                 unsafe {
                     if self.process.is_null() || self.process == INVALID_HANDLE_VALUE {
                         return Some(-1);
                     }
-                    let mut code: u32 = 0;
-                    if GetExitCodeProcess(self.process, &mut code) == 0 {
+                    // WAIT_OBJECT_0 == 0 → process has exited (even if exit code is 259).
+                    // WAIT_TIMEOUT == 258 → still running.
+                    let wait = WaitForSingleObject(self.process, 0);
+                    if wait != 0 {
                         return None;
                     }
-                    if code == STILL_ACTIVE {
-                        None
-                    } else {
-                        Some(code as i32)
+                    let mut code: u32 = 0;
+                    if GetExitCodeProcess(self.process, &mut code) == 0 {
+                        return Some(-1);
                     }
+                    // Process has exited; return actual code (may be STILL_ACTIVE=259).
+                    Some(code as i32)
                 }
             }
 
@@ -1060,6 +1054,20 @@ mod tests {
         assert!(!is_allowed_navigation("https://127.0.0.1:8756/", 8756));
         assert!(!is_allowed_navigation("http://127.0.0.1:9999/", 8756));
         assert!(!is_allowed_navigation("http://localhost:8756/", 8756));
+        // CR-10: url::Url rejects userinfo / wrong scheme consistently (non-gui path too)
+        assert!(!is_allowed_navigation("http://user:pass@127.0.0.1:8756/", 8756));
+        assert!(!is_allowed_navigation("ftp://127.0.0.1:8756/", 8756));
+        assert!(!is_allowed_navigation("not a url", 8756));
+    }
+
+    #[test]
+    fn ready_regex_compiled_once_still_parses() {
+        // CR-9: Lazy regex — multiple calls must keep working after first compile.
+        for port in [8756u16, 1, 65535] {
+            let line = format!("VITRANSCRIPT_READY http://127.0.0.1:{port}");
+            assert_eq!(parse_ready_line(&line), Some(port));
+        }
+        assert!(parse_ready_line("VITRANSCRIPT_READY http://127.0.0.1:notport").is_none());
     }
 
     /// R2-7: fake child keeps stdout open (no READY) → wait hits deadline.
