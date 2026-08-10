@@ -452,6 +452,8 @@
 
       // R2-3: freeze membership of the current batch; items enqueued mid-batch stay wait for next Start.
       let activeBatchPaths = null; // Set<string> | null
+      // NEW-1 / CR-2: snapshot options MỘT LẦN khi Start — retry trong batch không đọc controls live.
+      let activeBatchOptions = null; // object | null
 
       function enqueuePaths(paths) {
         if (!paths || !paths.length) return;
@@ -472,9 +474,16 @@
         item.status = "wait";
         item.error = null;
         item.jobId = null;
-        // CR-2: luôn gán options hợp lệ — tránh processQueue đánh "Thiếu options snapshot"
-        // khi bấm Thử lại giữa batch (trước đây gán null rồi bị nhặt lại ngay).
-        item.options = snapshotOptions();
+        // CR-2 / NEW-1: trong batch đang chạy — GIỮ options snapshot của batch, không đọc controls live
+        // (tránh file retry dùng model/settings khác phần còn lại của batch).
+        if (queueRunning) {
+          item.options = activeBatchOptions || item.options;
+          // Fallback an toàn nếu snapshot mất (không nên xảy ra): giữ options cũ đã có trên item.
+          // Không gọi snapshotOptions() khi queueRunning.
+        } else {
+          // Ngoài batch: snapshot mới hợp lệ cho lần Start kế tiếp.
+          item.options = snapshotOptions();
+        }
       }
 
       /** Chuỗi hóa body.detail FastAPI: string | array validation | object. */
@@ -524,7 +533,7 @@
             retryBtn.className = "q-retry";
             retryBtn.textContent = "Thử lại";
             retryBtn.title = queueRunning
-              ? "Đưa file lỗi vào lại batch đang chạy (giữ options hiện tại)"
+              ? "Đưa file lỗi vào lại batch đang chạy (giữ options snapshot của batch)"
               : "Đưa file lỗi về hàng chờ để chạy batch sau";
             retryBtn.addEventListener("click", (ev) => {
               ev.stopPropagation();
@@ -710,6 +719,7 @@
         } finally {
           queueRunning = false;
           activeBatchPaths = null;
+          activeBatchOptions = null;
           setRunning(false);
         }
       }
@@ -1032,9 +1042,15 @@
             showError("Vui lòng chọn file audio hoặc video trước (File > Mở… hoặc kéo thả).");
             return;
           }
-          // Snapshot options + freeze batch membership MỘT LẦN (R2-3).
+          // Snapshot options + freeze batch membership MỘT LẦN (R2-3 / NEW-1).
           // Items added after this stay wait with options=null for the next Start.
+          // Retry trong batch phải dùng activeBatchOptions — không đọc controls live.
+          if (queueRunning) {
+            showError("Đang xử lý hàng đợi. Vui lòng đợi xong hoặc thử lại file lỗi trong batch.");
+            return;
+          }
           const opts = snapshotOptions();
+          activeBatchOptions = opts;
           const batchPaths = new Set();
           queue.forEach((q) => {
             if (q.status === "wait") {
