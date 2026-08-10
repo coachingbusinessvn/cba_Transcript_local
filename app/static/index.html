@@ -472,7 +472,35 @@
         item.status = "wait";
         item.error = null;
         item.jobId = null;
-        item.options = null;
+        // CR-2: luôn gán options hợp lệ — tránh processQueue đánh "Thiếu options snapshot"
+        // khi bấm Thử lại giữa batch (trước đây gán null rồi bị nhặt lại ngay).
+        item.options = snapshotOptions();
+      }
+
+      /** Chuỗi hóa body.detail FastAPI: string | array validation | object. */
+      function formatDetail(detail) {
+        if (detail == null || detail === "") return "";
+        if (typeof detail === "string") return detail;
+        if (Array.isArray(detail)) {
+          return detail
+            .map((d) => {
+              if (typeof d === "string") return d;
+              if (d && typeof d === "object") {
+                if (d.msg) {
+                  const loc = Array.isArray(d.loc) ? d.loc.filter((x) => x !== "body").join(".") : "";
+                  return (loc ? loc + ": " : "") + d.msg;
+                }
+                try { return JSON.stringify(d); } catch (_) { return String(d); }
+              }
+              return String(d);
+            })
+            .filter(Boolean)
+            .join("; ");
+        }
+        if (typeof detail === "object") {
+          try { return JSON.stringify(detail); } catch (_) { return String(detail); }
+        }
+        return String(detail);
       }
 
       function renderQueue() {
@@ -495,10 +523,16 @@
             retryBtn.type = "button";
             retryBtn.className = "q-retry";
             retryBtn.textContent = "Thử lại";
-            retryBtn.title = "Đưa file lỗi về hàng chờ để chạy batch sau";
+            retryBtn.title = queueRunning
+              ? "Đưa file lỗi vào lại batch đang chạy (giữ options hiện tại)"
+              : "Đưa file lỗi về hàng chờ để chạy batch sau";
             retryBtn.addEventListener("click", (ev) => {
               ev.stopPropagation();
               resetQueueItemForRetry(item);
+              // CR-2: nếu batch đang chạy, cho processQueue nhặt lại item này.
+              if (queueRunning && activeBatchPaths) {
+                activeBatchPaths.add(item.path);
+              }
               showError("");
               renderQueue();
             });
@@ -542,6 +576,9 @@
         if (queueRunning) return;
         queueRunning = true;
         activeBatchPaths = batchPaths || null;
+        // CR-1: giới hạn retry 409 — không lặp vô hạn làm treo UI (queueRunning kẹt true).
+        const MAX_409_RETRIES = 3;
+        let conflict409Count = 0;
         try {
           while (true) {
             // Only items frozen into this batch — mid-batch enqueues stay wait for next Start (R2-3).
@@ -580,30 +617,43 @@
               let body = {};
               try { body = JSON.parse(resp.body || "{}"); } catch (_) { body = {}; }
               if (status === 409) {
+                conflict409Count += 1;
+                if (conflict409Count < MAX_409_RETRIES) {
+                  item.status = "wait";
+                  item.error = null;
+                  renderQueue();
+                  setProgress(
+                    null,
+                    "Đã có job đang chạy, chờ thử lại… (" + conflict409Count + "/" + MAX_409_RETRIES + ")"
+                  );
+                  await new Promise((r) => setTimeout(r, 2000));
+                  continue;
+                }
+                // Terminal: dừng batch, clear queueRunning qua finally.
                 item.status = "error";
-                item.error = "409 — job khác đang chạy (sẽ thử lại sau)";
+                item.error = "Đã có job đang chạy, thử lại sau";
                 renderQueue();
-                await new Promise((r) => setTimeout(r, 2000));
-                item.status = "wait";
-                item.error = null;
-                renderQueue();
-                continue;
+                showError(item.error);
+                break;
               }
+              conflict409Count = 0;
               if (status !== 200 || !body.job_id) {
                 item.status = "error";
-                item.error = body.detail || resp.body || ("HTTP " + status);
+                item.error = formatDetail(body.detail) || resp.body || ("HTTP " + status);
                 renderQueue();
                 showError(String(item.error));
                 continue;
               }
               item.jobId = body.job_id;
               currentJobId = body.job_id;
-              // Poll until terminal
+              // Poll until terminal (CR-7: dung sai mạng giống pollJob)
               await new Promise((resolve) => {
+                let tickFailCount = 0;
                 const tick = async () => {
                   try {
                     const r = await fetch("/api/jobs/" + item.jobId);
                     if (!r.ok) throw new Error("HTTP " + r.status);
+                    tickFailCount = 0;
                     const job = await r.json();
                     setProgress(job.percent, job.message || "");
                     showNote(job.note);
@@ -626,8 +676,23 @@
                     renderQueue();
                     resolve();
                   } catch (e) {
+                    tickFailCount += 1;
+                    const msg = String(e.message || e);
+                    if (
+                      tickFailCount < 5 &&
+                      (msg.includes("Failed to fetch") ||
+                        msg.includes("NetworkError") ||
+                        msg.includes("fetch"))
+                    ) {
+                      setProgress(
+                        null,
+                        "Mất kết nối tạm thời, đang thử lại… (" + tickFailCount + "/5)"
+                      );
+                      setTimeout(tick, 1200);
+                      return;
+                    }
                     item.status = "error";
-                    item.error = String(e.message || e);
+                    item.error = msg;
                     renderQueue();
                     showError(item.error);
                     resolve();
@@ -1006,7 +1071,8 @@
             let detail = "Đang có job khác chạy. Vui lòng đợi xong rồi thử lại.";
             try {
               const j = await r.json();
-              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+              const d = formatDetail(j.detail);
+              if (d) detail = d;
             } catch (_) {}
             showError(detail);
             setRunning(false);
@@ -1016,7 +1082,8 @@
             let detail = "Không tạo được job (HTTP " + r.status + ")";
             try {
               const j = await r.json();
-              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+              const d = formatDetail(j.detail);
+              if (d) detail = d;
             } catch (_) {}
             showError(detail);
             setRunning(false);
@@ -1047,7 +1114,8 @@
             let detail = "Xuất file thất bại (HTTP " + r.status + ")";
             try {
               const j = await r.json();
-              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+              const d = formatDetail(j.detail);
+              if (d) detail = d;
             } catch (_) {}
             showError(detail);
             return;
