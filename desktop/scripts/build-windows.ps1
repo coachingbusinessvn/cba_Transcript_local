@@ -74,10 +74,15 @@ if (-not (Test-Path "desktop\pyinstaller\dist\sidecar-manifest.json")) {
 }
 
 Write-Host "==> cargo tauri build (windows)"
-cargo tauri build --manifest-path desktop/src-tauri/Cargo.toml `
-  --no-sign `
-  --config desktop/src-tauri/tauri.windows.conf.json
-Assert-LastExitCode "cargo tauri build"
+# Tauri CLI 2.x does not accept cargo's --manifest-path; run from src-tauri.
+Push-Location "desktop\src-tauri"
+try {
+    cargo tauri build --no-sign --config tauri.windows.conf.json
+    Assert-LastExitCode "cargo tauri build"
+}
+finally {
+    Pop-Location
+}
 
 Write-Host "==> artifacts"
 Get-ChildItem -Recurse "desktop\src-tauri\target\release\bundle" -File -ErrorAction SilentlyContinue | ForEach-Object {

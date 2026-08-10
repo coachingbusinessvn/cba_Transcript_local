@@ -34,8 +34,8 @@
 | D1 | PyInstaller sidecar spike | 🟢 | shared `ffmpeg_license_audit.py` NONFREE-first + license/source-offer |
 | D2 | Tauri shell + lifecycle | 🟢 | drain lifetime; group kill after leader; parent-death; cargo test --lib 14 |
 | D3 | Native file bridge + menu + queue UI | 🟢 | batch freeze + retry; least-privilege capability |
-| D4 | Icon + build scripts + CI | 🟢 | binary fail-closed; CI shared data-home + docker offline hard-fail |
-| D5 | E2E Ubuntu scripts | 🟢 | clean Ubuntu docker full job; e2e READY queue deadline; full e2e on host still 🔵 |
+| D4 | Icon + build scripts + CI | 🟢 | binary fail-closed; CI abs path mount; tauri CLI cwd (no --manifest-path) |
+| D5 | E2E Ubuntu scripts | 🟢 | sidecar U22 online+offline PASS; E2E-1..4 fixes; Xvfb/AppImage full still 🔵 (host deps) |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
 

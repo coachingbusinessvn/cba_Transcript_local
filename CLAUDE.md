@@ -38,7 +38,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 > _Phần này tự động cập nhật khi commit vào main._
 
-**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D5 🟢 (code + review-r1 + review-r2), e2e Ubuntu full 🔵
+**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D5 🟢 (code + review-r1 + review-r2 + e2e-script fix), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
 
 **Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
 
@@ -68,8 +68,8 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | D1 | PyInstaller sidecar | 🟢 | shared `ffmpeg_license_audit.py` NONFREE-first + license/source-offer gate |
 | D2 | Tauri shell + lifecycle | 🟢 | stdout drain lifetime; group kill after leader exit; parent-death; cargo test --lib 14 |
 | D3 | Native file bridge + queue UI | 🟢 | batch freeze membership + retry; least-privilege capability |
-| D4 | Icon + build scripts + CI | 🟢 | offline fail closed; CI shared data-home + docker offline |
-| D5 | E2E Ubuntu scripts | 🟢 | clean Ubuntu docker full job/export; e2e READY queue deadline |
+| D4 | Icon + build scripts + CI | 🟢 | offline fail closed; CI shared data-home + docker offline; abs path mount; tauri CLI cwd |
+| D5 | E2E Ubuntu scripts | 🟢 | sidecar U22 online+offline PASS; E2E-1..4 script fixes (abs mount, no chmod :ro, Xvfb DISPLAY, group-kill test) |
 
 **Rủi ro / việc treo đang mở:**
 - [ ] Verify installer trên Windows thật (Job Object spawn chưa verify native — host Linux)

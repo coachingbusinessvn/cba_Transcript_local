@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Headless Tauri smoke under Xvfb: window appears, close exits, sidecar port closes.
 # Usage: scripts/smoke_desktop_linux.sh <path-to-AppImage-or-release-bin>
+#
+# App and xdotool MUST share the same DISPLAY. xvfb-run only exports DISPLAY to its
+# child, so parent-shell xdotool would miss the window. We start Xvfb ourselves.
 set -euo pipefail
 
 BIN="${1:-}"
@@ -9,8 +12,8 @@ if [[ -z "${BIN}" || ! -e "${BIN}" ]]; then
   exit 1
 fi
 
-if ! command -v xvfb-run >/dev/null 2>&1; then
-  echo "ERROR: xvfb-run required (apt install xvfb)" >&2
+if ! command -v Xvfb >/dev/null 2>&1; then
+  echo "ERROR: Xvfb required (apt install xvfb)" >&2
   exit 1
 fi
 if ! command -v xdotool >/dev/null 2>&1; then
@@ -25,7 +28,8 @@ export XDG_CACHE_HOME="${WORKDIR}/cache"
 mkdir -p "${XDG_DATA_HOME}" "${XDG_CONFIG_HOME}" "${XDG_CACHE_HOME}"
 
 LOG="${WORKDIR}/app.log"
-READY_LOG="${WORKDIR}/ready.txt"
+XVFB_PID=""
+APP_PID=""
 
 cleanup() {
   if [[ -n "${APP_PID:-}" ]] && kill -0 "${APP_PID}" 2>/dev/null; then
@@ -33,10 +37,44 @@ cleanup() {
     sleep 1
     kill -9 "${APP_PID}" 2>/dev/null || true
   fi
+  if [[ -n "${XVFB_PID:-}" ]] && kill -0 "${XVFB_PID}" 2>/dev/null; then
+    kill "${XVFB_PID}" 2>/dev/null || true
+    wait "${XVFB_PID}" 2>/dev/null || true
+  fi
 }
 trap cleanup EXIT
 
-echo "==> launch under xvfb: ${BIN}"
+# Pick a free display number
+DISPLAY_NUM=""
+for n in $(seq 99 119); do
+  if [[ ! -e "/tmp/.X${n}-lock" ]]; then
+    DISPLAY_NUM="${n}"
+    break
+  fi
+done
+if [[ -z "${DISPLAY_NUM}" ]]; then
+  echo "ERROR: no free X display in :99–:119" >&2
+  exit 1
+fi
+
+echo "==> start Xvfb :${DISPLAY_NUM}"
+Xvfb ":${DISPLAY_NUM}" -screen 0 1280x800x24 -nolisten tcp >/dev/null 2>&1 &
+XVFB_PID=$!
+export DISPLAY=":${DISPLAY_NUM}"
+# Brief settle so clients can connect
+for _ in $(seq 1 20); do
+  if kill -0 "${XVFB_PID}" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+if ! kill -0 "${XVFB_PID}" 2>/dev/null; then
+  echo "ERROR: Xvfb failed to start" >&2
+  exit 1
+fi
+sleep 0.3
+
+echo "==> launch under DISPLAY=${DISPLAY}: ${BIN}"
 # AppImage may need extract mode without FUSE
 RUN=("${BIN}")
 if [[ "${BIN}" == *.AppImage ]]; then
@@ -44,13 +82,10 @@ if [[ "${BIN}" == *.AppImage ]]; then
   RUN=("${BIN}" --appimage-extract-and-run)
 fi
 
-# Mirror READY from Tauri stdout
-(
-  xvfb-run -a -s "-screen 0 1280x800x24" "${RUN[@]}" >"${LOG}" 2>&1
-) &
+"${RUN[@]}" >"${LOG}" 2>&1 &
 APP_PID=$!
 
-# Wait window
+# Wait window (xdotool on same DISPLAY as app)
 echo "==> wait window ViTranscript (60s)"
 FOUND=0
 for _ in $(seq 1 60); do
@@ -97,6 +132,7 @@ if kill -0 "${APP_PID}" 2>/dev/null; then
   echo "ERROR: app still running after close"
   exit 1
 fi
+APP_PID=""
 
 if [[ -n "${PORT}" ]]; then
   if ss -ltn 2>/dev/null | grep -q ":${PORT} "; then

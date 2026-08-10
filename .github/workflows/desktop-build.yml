@@ -90,15 +90,22 @@ jobs:
               scripts/docker
             WAV="$(mktemp /tmp/vitranscript-e2e-XXXX.wav)"
             bash scripts/gen_test_audio_linux.sh "${WAV}"
+            # Absolute paths for docker -v; execute bit on host before :ro mount.
+            SIDECAR_ABS="$(cd "$(dirname "${SIDECAR}")" && pwd)/$(basename "${SIDECAR}")"
+            if [[ ! -x "${SIDECAR_ABS}" ]]; then
+              chmod +x "${SIDECAR_ABS}"
+            fi
+            test -x "${SIDECAR_ABS}"
+            WAV_ABS="$(cd "$(dirname "${WAV}")" && pwd)/$(basename "${WAV}")"
             docker run --rm --network none \
               -v "${DATA_HOME}:/data" \
-              -v "$(pwd)/${SIDECAR}:/sidecar:ro" \
+              -v "${SIDECAR_ABS}:/sidecar:ro" \
               -v "$(pwd)/scripts/e2e_sidecar_linux.py:/e2e.py:ro" \
-              -v "${WAV}:/sample.wav:ro" \
+              -v "${WAV_ABS}:/sample.wav:ro" \
               -e XDG_DATA_HOME=/data \
               -e VITRANSCRIPT_ENABLE_TEST_MODEL=1 \
               "${IMAGE_TAG}" \
-              bash -c 'set -euo pipefail; chmod +x /sidecar; python3 /e2e.py --sidecar /sidecar --wav /sample.wav --data-home /data'
+              bash -c 'set -euo pipefail; python3 /e2e.py --sidecar /sidecar --wav /sample.wav --data-home /data'
           else
             echo "ERROR: cannot isolate network (need unshare -n or docker --network none)" >&2
             exit 1

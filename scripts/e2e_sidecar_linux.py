@@ -131,7 +131,27 @@ def main() -> int:
     if not sidecar.is_file():
         print(f"ERROR: sidecar not found: {sidecar}", file=sys.stderr)
         return 1
-    os.chmod(sidecar, os.stat(sidecar).st_mode | 0o111)
+    # Only chmod when execute bit is missing AND path is writable.
+    # Read-only mounts (docker :ro) already have host execute bit — skip; otherwise fail clearly.
+    mode = sidecar.stat().st_mode
+    if not (mode & 0o111):
+        if not os.access(sidecar, os.W_OK):
+            print(
+                f"ERROR: sidecar missing execute bit and path is not writable: {sidecar}",
+                file=sys.stderr,
+            )
+            return 1
+        try:
+            os.chmod(sidecar, mode | 0o111)
+        except OSError as e:
+            print(
+                f"ERROR: cannot set execute bit on sidecar: {sidecar}: {e}",
+                file=sys.stderr,
+            )
+            return 1
+    if not os.access(sidecar, os.X_OK):
+        print(f"ERROR: sidecar not executable: {sidecar}", file=sys.stderr)
+        return 1
 
     # Generate test audio if needed
     wav = args.wav

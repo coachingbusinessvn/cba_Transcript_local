@@ -67,9 +67,11 @@ if [[ "${SRC_SHA}" != "${ST_SHA}" ]]; then
 fi
 
 echo "==> cargo tauri build (macos)"
-cargo tauri build --manifest-path desktop/src-tauri/Cargo.toml \
-  --no-sign \
-  --config desktop/src-tauri/tauri.macos.conf.json
+# Tauri CLI 2.x does not accept cargo's --manifest-path; run from src-tauri.
+(
+  cd desktop/src-tauri
+  cargo tauri build --no-sign --config tauri.macos.conf.json
+)
 
 echo "==> artifacts"
 find desktop/src-tauri/target/release/bundle -type f 2>/dev/null | while read -r f; do

@@ -1135,12 +1135,14 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn unix_process_group_kills_descendant() {
+        use std::io::{BufRead, BufReader};
         use std::os::unix::process::CommandExt;
         use std::process::{Command, Stdio};
         use std::thread;
         use std::time::Duration;
 
-        // Shell becomes group leader; spawns a sleep descendant.
+        // Shell becomes group leader; spawns a sleep descendant and prints its PID.
+        // Read only the PID line (not full EOF) so we can kill the group before sleep ends.
         let mut child = Command::new("bash")
             .args(["-c", "sleep 120 & echo $!; wait"])
             .stdout(Stdio::piped())
@@ -1149,24 +1151,32 @@ mod tests {
             .spawn()
             .expect("spawn bash");
         let pgid = child.id() as i32;
-        let mut stdout = child.stdout.take().unwrap();
-        let mut buf = String::new();
-        let _ = std::io::Read::read_to_string(&mut stdout, &mut buf);
-        let descendant: Option<i32> = buf.trim().parse().ok();
+        let stdout = child.stdout.take().unwrap();
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .expect("read descendant pid line");
+        let descendant: i32 = line
+            .trim()
+            .parse()
+            .unwrap_or_else(|_| panic!("expected descendant pid line, got: {line:?}"));
 
+        // Kill process group immediately — do not wait for sleep to close the pipe.
         unix_kill_pg(pgid, 15);
         thread::sleep(Duration::from_millis(200));
         unix_kill_pg(pgid, 9);
         let _ = child.kill();
         let _ = child.wait();
 
-        if let Some(dpid) = descendant {
-            extern "C" {
-                fn kill(pid: i32, sig: i32) -> i32;
-            }
-            thread::sleep(Duration::from_millis(100));
-            let alive = unsafe { kill(dpid, 0) == 0 };
-            assert!(!alive, "descendant {dpid} should be dead after group kill");
+        extern "C" {
+            fn kill(pid: i32, sig: i32) -> i32;
         }
+        thread::sleep(Duration::from_millis(100));
+        let alive = unsafe { kill(descendant, 0) == 0 };
+        assert!(
+            !alive,
+            "descendant {descendant} should be dead after group kill"
+        );
     }
 }

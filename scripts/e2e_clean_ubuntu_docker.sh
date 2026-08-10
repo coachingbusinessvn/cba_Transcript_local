@@ -12,10 +12,38 @@ WAV="${2:-}"
 IMAGE_TAG="${VITRANSCRIPT_E2E_IMAGE:-vitranscript-e2e-runtime:local}"
 DOCKERFILE="$ROOT/scripts/docker/e2e-runtime.Dockerfile"
 
+# Resolve to absolute path so docker -v never treats a relative path as a volume name.
+abspath() {
+  local p="$1"
+  if [[ ! -e "${p}" ]]; then
+    echo "ERROR: path not found: ${p}" >&2
+    return 1
+  fi
+  # Prefer realpath when available (handles symlinks); fallback for minimal hosts.
+  if command -v realpath >/dev/null 2>&1; then
+    realpath "${p}"
+  else
+    echo "$(cd "$(dirname "${p}")" && pwd)/$(basename "${p}")"
+  fi
+}
+
+if [[ ! -f "${SIDECAR}" ]]; then
+  echo "ERROR: sidecar not found: ${SIDECAR}" >&2
+  exit 1
+fi
+# Execute bit must be set on the host BEFORE a read-only mount (cannot chmod :ro).
+if [[ ! -x "${SIDECAR}" ]]; then
+  chmod +x "${SIDECAR}" || {
+    echo "ERROR: cannot set execute bit on sidecar: ${SIDECAR}" >&2
+    exit 1
+  }
+fi
 if [[ ! -x "${SIDECAR}" ]]; then
   echo "ERROR: sidecar not executable: ${SIDECAR}" >&2
   exit 1
 fi
+SIDECAR="$(abspath "${SIDECAR}")"
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "ERROR: docker required for clean Ubuntu runtime gate" >&2
   exit 1
@@ -29,6 +57,7 @@ if [[ -z "${WAV}" || ! -f "${WAV}" ]]; then
   WAV="$(mktemp /tmp/vitranscript-e2e-XXXX.wav)"
   bash "$ROOT/scripts/gen_test_audio_linux.sh" "${WAV}"
 fi
+WAV="$(abspath "${WAV}")"
 
 DATA_VOL="vitranscript-e2e-data-$$"
 docker volume create "${DATA_VOL}" >/dev/null
@@ -43,6 +72,7 @@ docker build -t "${IMAGE_TAG}" -f "${DOCKERFILE}" "$ROOT/scripts/docker"
 
 run_in_container() {
   # Args: extra docker run flags (e.g. --network none)
+  # Mount sidecar :ro — execute bit already set on host; do NOT chmod inside container.
   docker run --rm \
     "$@" \
     -v "${SIDECAR}:/sidecar:ro" \
@@ -55,7 +85,6 @@ run_in_container() {
     "${IMAGE_TAG}" \
     bash -c '
       set -euo pipefail
-      chmod +x /sidecar
       /sidecar --self-test-native
       # Full job/export via harness (harness is not part of product runtime).
       python3 /e2e.py --sidecar /sidecar --wav /sample.wav --data-home /data
