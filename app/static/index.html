@@ -267,6 +267,12 @@
     #queueList li.q-running .q-status { color: var(--accent); }
     #queueList li.q-done .q-status { color: var(--ok); }
     #queueList li.q-error .q-status { color: var(--danger); }
+    #queueList .q-retry {
+      margin-left: 0.5rem; font-size: 0.75rem; padding: 0.15rem 0.45rem;
+      border: 1px solid var(--border); border-radius: 4px; background: var(--surface);
+      cursor: pointer; color: var(--fg);
+    }
+    #queueList .q-retry:hover { background: var(--accent-soft); }
     #queueCard { display: none; }
     body.desktop #queueCard { display: block; }
     body.desktop #fileInput { display: none !important; }
@@ -444,6 +450,9 @@
         return i >= 0 ? s.slice(i + 1) : s;
       }
 
+      // R2-3: freeze membership of the current batch; items enqueued mid-batch stay wait for next Start.
+      let activeBatchPaths = null; // Set<string> | null
+
       function enqueuePaths(paths) {
         if (!paths || !paths.length) return;
         paths.forEach((p) => {
@@ -457,6 +466,13 @@
           fileNameEl.textContent = basename(selectedLocalPath) + (paths.length > 1 ? " (+hàng đợi)" : "");
         }
         renderQueue();
+      }
+
+      function resetQueueItemForRetry(item) {
+        item.status = "wait";
+        item.error = null;
+        item.jobId = null;
+        item.options = null;
       }
 
       function renderQueue() {
@@ -474,6 +490,20 @@
           st.textContent = labels[item.status] || item.status;
           li.appendChild(name);
           li.appendChild(st);
+          if (item.status === "error") {
+            const retryBtn = document.createElement("button");
+            retryBtn.type = "button";
+            retryBtn.className = "q-retry";
+            retryBtn.textContent = "Thử lại";
+            retryBtn.title = "Đưa file lỗi về hàng chờ để chạy batch sau";
+            retryBtn.addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              resetQueueItemForRetry(item);
+              showError("");
+              renderQueue();
+            });
+            li.appendChild(retryBtn);
+          }
           li.addEventListener("click", async () => {
             if (item.status === "done" && item.jobId) {
               currentJobId = item.jobId;
@@ -508,12 +538,18 @@
         };
       }
 
-      async function processQueue() {
+      async function processQueue(batchPaths) {
         if (queueRunning) return;
         queueRunning = true;
+        activeBatchPaths = batchPaths || null;
         try {
           while (true) {
-            const item = queue.find((q) => q.status === "wait");
+            // Only items frozen into this batch — mid-batch enqueues stay wait for next Start (R2-3).
+            const item = queue.find(
+              (q) =>
+                q.status === "wait" &&
+                (!activeBatchPaths || activeBatchPaths.has(q.path))
+            );
             if (!item) break;
             item.status = "running";
             // Options đã snapshot một lần khi bấm Start — không đọc lại control UI.
@@ -608,6 +644,7 @@
           }
         } finally {
           queueRunning = false;
+          activeBatchPaths = null;
           setRunning(false);
         }
       }
@@ -922,16 +959,25 @@
           if (!queue.length && selectedLocalPath) {
             enqueuePaths([selectedLocalPath]);
           }
+          // Retry path: Start resets error items back to wait so they can re-run.
+          queue.forEach((q) => {
+            if (q.status === "error") resetQueueItemForRetry(q);
+          });
           if (!queue.some((q) => q.status === "wait" || q.status === "running")) {
             showError("Vui lòng chọn file audio hoặc video trước (File > Mở… hoặc kéo thả).");
             return;
           }
-          // Snapshot options MỘT LẦN khi bắt đầu batch — processQueue không ghi đè.
+          // Snapshot options + freeze batch membership MỘT LẦN (R2-3).
+          // Items added after this stay wait with options=null for the next Start.
           const opts = snapshotOptions();
+          const batchPaths = new Set();
           queue.forEach((q) => {
-            if (q.status === "wait") q.options = opts;
+            if (q.status === "wait") {
+              q.options = opts;
+              batchPaths.add(q.path);
+            }
           });
-          processQueue();
+          processQueue(batchPaths);
           return;
         }
 

@@ -50,6 +50,8 @@ jobs:
       - name: Require sidecar-manifest.json
         run: |
           test -f desktop/pyinstaller/dist/sidecar-manifest.json
+          test -d desktop/pyinstaller/dist/ffmpeg-notices
+          test -f desktop/pyinstaller/dist/ffmpeg-notices/SOURCE_OFFER.txt
           python3 - <<'PY'
           import json
           m = json.load(open("desktop/pyinstaller/dist/sidecar-manifest.json"))
@@ -58,20 +60,48 @@ jobs:
           assert ff.get("ffmpeg_version_line"), "missing version"
           assert ff.get("ffmpeg_configuration"), "missing configuration"
           assert ff.get("ffmpeg_sha256"), "missing sha"
+          assert ff.get("download_url"), "missing download_url provenance"
+          assert ff.get("resolver_package_version"), "missing resolver package version"
+          assert ff.get("license_artifacts"), "missing license_artifacts gate"
+          assert m.get("onefile"), "onefile entry required"
           print("manifest OK", ff.get("ffmpeg_license"), ff.get("ffmpeg_version_line")[:80])
+          print("download_url", ff.get("download_url"))
           PY
-      - name: Sidecar e2e (headless)
+      - name: Sidecar e2e online + offline (shared XDG_DATA_HOME)
         run: |
+          set -euo pipefail
+          DATA_HOME="$(mktemp -d /tmp/vitranscript-e2e-data-XXXX)"
+          SIDECAR="desktop/pyinstaller/dist/vitranscript-sidecar"
+          echo "DATA_HOME=${DATA_HOME}"
+          # Online pass — populates model cache under DATA_HOME (R2-4 shared cache).
           uv run python scripts/e2e_sidecar_linux.py \
-            --sidecar desktop/pyinstaller/dist/vitranscript-sidecar
-      - name: Sidecar e2e offline (shared cache, --network none)
-        run: |
-          # Re-run with network namespace empty if unshare available; else skip with note.
+            --sidecar "${SIDECAR}" \
+            --data-home "${DATA_HOME}"
+          # Offline pass MUST reuse the same cache. Isolation failure is a hard fail.
           if command -v unshare >/dev/null 2>&1 && unshare -n true 2>/dev/null; then
             unshare -n -- uv run python scripts/e2e_sidecar_linux.py \
-              --sidecar desktop/pyinstaller/dist/vitranscript-sidecar
+              --sidecar "${SIDECAR}" \
+              --data-home "${DATA_HOME}"
+          elif command -v docker >/dev/null 2>&1; then
+            # Prebuild image (networked). Offline container never apt-gets.
+            IMAGE_TAG="vitranscript-e2e-runtime:ci"
+            docker build -t "${IMAGE_TAG}" \
+              -f scripts/docker/e2e-runtime.Dockerfile \
+              scripts/docker
+            WAV="$(mktemp /tmp/vitranscript-e2e-XXXX.wav)"
+            bash scripts/gen_test_audio_linux.sh "${WAV}"
+            docker run --rm --network none \
+              -v "${DATA_HOME}:/data" \
+              -v "$(pwd)/${SIDECAR}:/sidecar:ro" \
+              -v "$(pwd)/scripts/e2e_sidecar_linux.py:/e2e.py:ro" \
+              -v "${WAV}:/sample.wav:ro" \
+              -e XDG_DATA_HOME=/data \
+              -e VITRANSCRIPT_ENABLE_TEST_MODEL=1 \
+              "${IMAGE_TAG}" \
+              bash -c 'set -euo pipefail; chmod +x /sidecar; python3 /e2e.py --sidecar /sidecar --wav /sample.wav --data-home /data'
           else
-            echo "WARN: unshare -n not permitted on this runner; offline gate deferred"
+            echo "ERROR: cannot isolate network (need unshare -n or docker --network none)" >&2
+            exit 1
           fi
       - name: Xvfb Tauri smoke (best-effort on artifact)
         run: |
@@ -87,14 +117,17 @@ jobs:
             exit 1
           fi
           bash scripts/smoke_desktop_linux.sh "${BIN}"
-      - name: Clean Ubuntu 22.04 runtime gate (no system Python package assume)
+      - name: Clean Ubuntu 22.04 runtime gate (docker, full job)
         run: |
-          # Sidecar is self-contained PyInstaller; verify it starts without uv/venv.
+          set -euo pipefail
           BIN="desktop/pyinstaller/dist/vitranscript-sidecar"
           test -x "${BIN}"
-          # Clear PATH to minimal — only keep essentials + the binary dir
-          env -i PATH="/usr/bin:/bin" HOME="$HOME" \
-            "${BIN}" --self-test-native
+          # Prefer full clean-container gate; fail if docker missing (R2-5).
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "ERROR: docker required for clean Ubuntu 22.04 runtime gate" >&2
+            exit 1
+          fi
+          bash scripts/e2e_clean_ubuntu_docker.sh "${BIN}"
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -102,6 +135,7 @@ jobs:
           path: |
             desktop/src-tauri/target/release/bundle/**
             desktop/pyinstaller/dist/sidecar-manifest.json
+            desktop/pyinstaller/dist/ffmpeg-notices/**
           if-no-files-found: error
 
   macos-arm64:

@@ -33,74 +33,8 @@ print('OK no torch/tensorflow')
 "@
 Assert-LastExitCode "refuse torch/tensorflow"
 
-Write-Host "==> resolve ffmpeg/ffprobe + license audit"
-uv run python -c @"
-import json, hashlib, platform, re, subprocess, sys
-from pathlib import Path
-import static_ffmpeg.run as sfr
-
-ff, fp = sfr.get_or_fetch_platform_executables_else_raise()
-
-def sha(p):
-    h=hashlib.sha256()
-    with open(p,'rb') as f:
-        for c in iter(lambda: f.read(1<<20), b''):
-            h.update(c)
-    return h.hexdigest()
-
-def audit_ffmpeg(path):
-    try:
-        proc = subprocess.run([path, '-version'], capture_output=True, text=True, timeout=30, check=False)
-    except OSError as e:
-        print('ERROR cannot execute ffmpeg:', e); sys.exit(1)
-    text = (proc.stdout or '') + '\n' + (proc.stderr or '')
-    if 'ffmpeg version' not in text.lower() and 'version' not in text.lower():
-        print('ERROR ffmpeg -version failed', proc.returncode); sys.exit(1)
-    version_line = ''
-    configuration = ''
-    for line in text.splitlines():
-        ls = line.strip()
-        if not version_line and ls.lower().startswith('ffmpeg version'):
-            version_line = ls
-        if ls.lower().startswith('configuration:'):
-            configuration = ls.split(':', 1)[1].strip() if ':' in ls else ls
-    if not version_line:
-        print('ERROR no version line'); sys.exit(1)
-    if not configuration:
-        print('ERROR no configuration line — cannot audit license'); sys.exit(1)
-    cfg_l = configuration.lower()
-    if re.search(r'--enable-nonfree\b', cfg_l):
-        print('ERROR NONFREE ffmpeg'); sys.exit(1)
-    if re.search(r'--enable-gpl\b', cfg_l) and not re.search(r'--disable-gpl\b', cfg_l):
-        license_kind = 'GPL'
-    else:
-        license_kind = 'LGPL'
-    return version_line, configuration, license_kind
-
-ver, cfg, lic = audit_ffmpeg(ff)
-meta = {
-  'ffmpeg_basename': Path(ff).name,
-  'ffprobe_basename': Path(fp).name,
-  'ffmpeg_path': ff,
-  'ffprobe_path': fp,
-  'ffmpeg_sha256': sha(ff),
-  'ffprobe_sha256': sha(fp),
-  'ffmpeg_version_line': ver,
-  'ffmpeg_configuration': cfg,
-  'ffmpeg_license': lic,
-  'source_package': 'static-ffmpeg (PyPI)',
-  'os': platform.system(),
-  'arch': platform.machine(),
-  'python': sys.version.split()[0],
-}
-Path('desktop/pyinstaller').mkdir(parents=True, exist_ok=True)
-Path('desktop/pyinstaller/_ffmpeg_resolve.json').write_text(json.dumps(meta, indent=2), encoding='utf-8')
-Path('desktop/pyinstaller/_ffmpeg.path').write_text(ff, encoding='utf-8')
-Path('desktop/pyinstaller/_ffprobe.path').write_text(fp, encoding='utf-8')
-print(ff)
-print(fp)
-print('LICENSE', lic)
-"@
+Write-Host "==> resolve ffmpeg/ffprobe + license audit (shared Python)"
+uv run python desktop/scripts/ffmpeg_license_audit.py resolve
 Assert-LastExitCode "ffmpeg resolve/audit"
 
 $ffPath = (Get-Content -Raw "desktop\pyinstaller\_ffmpeg.path").Trim()
@@ -158,55 +92,8 @@ if ($Mode -eq "onefile" -or $Mode -eq "both") {
     Run-SelfTest $bin
 }
 
-Write-Host "==> write sidecar-manifest.json"
-uv run python -c @"
-import hashlib, json, platform, sys
-from pathlib import Path
-from datetime import datetime, timezone
-
-root = Path('.')
-dist = root / 'desktop/pyinstaller/dist'
-onefile = dist / 'vitranscript-sidecar.exe'
-onedir = dist / 'vitranscript-sidecar' / 'vitranscript-sidecar.exe'
-p = root / 'desktop/pyinstaller/_ffmpeg_resolve.json'
-if not p.is_file():
-    print('ERROR missing _ffmpeg_resolve.json'); sys.exit(1)
-ff_meta = json.loads(p.read_text(encoding='utf-8'))
-if not ff_meta.get('ffmpeg_license') or not ff_meta.get('ffmpeg_version_line') or not ff_meta.get('ffmpeg_configuration'):
-    print('ERROR incomplete ffmpeg audit'); sys.exit(1)
-
-def sha(path: Path):
-    if not path.is_file():
-        return None
-    h = hashlib.sha256()
-    with path.open('rb') as f:
-        for chunk in iter(lambda: f.read(1 << 20), b''):
-            h.update(chunk)
-    return {'name': path.name, 'size': path.stat().st_size, 'sha256': h.hexdigest()}
-
-ff_public = {
-    'ffmpeg_basename': ff_meta.get('ffmpeg_basename'),
-    'ffprobe_basename': ff_meta.get('ffprobe_basename'),
-    'ffmpeg_sha256': ff_meta.get('ffmpeg_sha256'),
-    'ffprobe_sha256': ff_meta.get('ffprobe_sha256'),
-    'ffmpeg_version_line': ff_meta.get('ffmpeg_version_line'),
-    'ffmpeg_configuration': ff_meta.get('ffmpeg_configuration'),
-    'ffmpeg_license': ff_meta.get('ffmpeg_license'),
-    'source_package': ff_meta.get('source_package', 'static-ffmpeg (PyPI)'),
-}
-manifest = {
-    'created_at': datetime.now(timezone.utc).isoformat(),
-    'os': platform.system(),
-    'arch': platform.machine(),
-    'python': sys.version.split()[0],
-    'ffmpeg': ff_public,
-    'onefile': sha(onefile) if onefile.is_file() else None,
-    'onedir': sha(onedir) if onedir.is_file() else None,
-}
-out = dist / 'sidecar-manifest.json'
-out.write_text(json.dumps(manifest, indent=2), encoding='utf-8')
-print('Wrote', out)
-"@
+Write-Host "==> write sidecar-manifest.json (shared audit + license gate)"
+uv run python desktop/scripts/ffmpeg_license_audit.py write-manifest --mode $Mode --dist $Dist
 Assert-LastExitCode "sidecar-manifest.json"
 
 if (-not (Test-Path "desktop\pyinstaller\dist\sidecar-manifest.json")) {

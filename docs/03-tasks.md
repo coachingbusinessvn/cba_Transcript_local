@@ -21,21 +21,21 @@
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
+| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 127 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
-| 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
+| 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | queue freeze batch + retry error (R2-3) |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
-| D0 | Desktop backend contract (READY, /healthz, local job, shutdown) | 🟢 | reparse fail-closed + token hash+compare_digest; 119 pytest |
-| D1 | PyInstaller sidecar spike | 🟢 | ffmpeg license audit (version+configuration+GPL/LGPL); Windows manifest |
-| D2 | Tauri shell + lifecycle | 🟢 | Win Job Object; Unix process_group; READY channel deadline; cargo test --lib 11 |
-| D3 | Native file bridge + menu + queue UI | 🟢 | numSpeakers camelCase; queue snapshot once; no innerHTML |
-| D4 | Icon + build scripts + CI | 🟢 | arch gate; CI cargo test + Xvfb smoke + manifest `if-no-files-found: error` |
-| D5 | E2E Ubuntu scripts | 🟢 | scripts ready; full e2e Ubuntu still 🔵 until CI/host green |
+| D0 | Desktop backend contract (READY, /healthz, local job, shutdown) | 🟢 | reparse fail-closed + token hash+compare_digest |
+| D1 | PyInstaller sidecar spike | 🟢 | shared `ffmpeg_license_audit.py` NONFREE-first + license/source-offer |
+| D2 | Tauri shell + lifecycle | 🟢 | drain lifetime; group kill after leader; parent-death; cargo test --lib 14 |
+| D3 | Native file bridge + menu + queue UI | 🟢 | batch freeze + retry; least-privilege capability |
+| D4 | Icon + build scripts + CI | 🟢 | binary fail-closed; CI shared data-home + docker offline hard-fail |
+| D5 | E2E Ubuntu scripts | 🟢 | clean Ubuntu docker full job; e2e READY queue deadline; full e2e on host still 🔵 |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
 

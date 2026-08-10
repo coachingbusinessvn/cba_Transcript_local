@@ -86,7 +86,7 @@ docs/
 <!-- status-block: start -->
 ## Current status
 
-**Progress:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D5 🟢 (code + review-r1 fixes), e2e Ubuntu full 🔵
+**Progress:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D5 🟢 (code + review-r1 + review-r2), e2e Ubuntu full 🔵
 
 **App modules in `app/`:**
 `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
@@ -104,21 +104,21 @@ docs/
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`) | 🟢 | 118 passed, 1 deselected |
+| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 127 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py` + `server_runtime.py`) | 🟢 | READY/healthz/local/shutdown; 409 1 job |
-| 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
+| 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | queue freeze batch + retry error (R2-3) |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
-| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | reparse fail-closed + token compare_digest; 119 unit test |
-| D1 | PyInstaller sidecar | 🟢 | ffmpeg license audit gate + Windows manifest schema |
-| D2 | Tauri shell + lifecycle | 🟢 | Job Object (Win) + setpgid fail/kill group (Unix) + READY channel deadline; cargo test --lib 11 |
-| D3 | Native file bridge + queue UI | 🟢 | numSpeakers camelCase; queue snapshot 1 lần; no innerHTML |
-| D4 | Icon + build scripts + CI | 🟢 | arch mismatch gate; CI cargo test + Xvfb smoke + manifest fail |
-| D5 | E2E Ubuntu scripts | 🟢 | scripts ready; **full e2e chưa chạy xanh trên CI host này** |
+| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | reparse fail-closed + token compare_digest |
+| D1 | PyInstaller sidecar | 🟢 | shared `ffmpeg_license_audit.py` NONFREE-first + license/source-offer gate |
+| D2 | Tauri shell + lifecycle | 🟢 | stdout drain lifetime; group kill after leader exit; parent-death; cargo test --lib 14 |
+| D3 | Native file bridge + queue UI | 🟢 | batch freeze membership + retry; least-privilege capability |
+| D4 | Icon + build scripts + CI | 🟢 | binary fail closed; CI shared data-home + docker offline |
+| D5 | E2E Ubuntu scripts | 🟢 | clean Ubuntu docker full job/export; e2e READY queue deadline |
 
 **Open risks / blockers:**
 - [ ] Verify installer trên Windows thật (Job Object spawn chưa verify native — host Linux)
@@ -127,7 +127,7 @@ docs/
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
 - [ ] Desktop: full e2e Ubuntu (Xvfb + AppImage) + Mac/Win native verify trên máy thật
 - [ ] Host thiếu WebKitGTK/pkg-config — `cargo tauri build` / default-features cần apt deps (CI ubuntu-22.04)
-- [ ] Desktop: PyInstaller native libs + e2e Ubuntu (Task D1/D5)
+- [ ] Desktop: full e2e + Windows Job Object native verify
 <!-- status-block: end -->
 
 ---

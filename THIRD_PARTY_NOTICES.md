@@ -7,22 +7,34 @@ they download on first use into the user data directory.
 ## FFmpeg / FFprobe
 
 - **Component:** `ffmpeg`, `ffprobe` binaries
-- **Source package at build:** `static-ffmpeg` (PyPI) resolves platform
-  executables used by the build scripts (`desktop/scripts/build-sidecar.*`).
-- **License gate (build-time):** `build-sidecar.sh` / `build-sidecar.ps1` run
-  `ffmpeg -version`, parse the **version line** and full **configuration**
-  flags, classify the binary as **GPL** or **LGPL** (fail the build if
-  `--enable-nonfree` is present, or if version/configuration cannot be audited).
-  Results are written to `desktop/pyinstaller/dist/sidecar-manifest.json` under
-  `ffmpeg.ffmpeg_version_line`, `ffmpeg.ffmpeg_configuration`,
-  `ffmpeg.ffmpeg_license`, and SHA-256 digests. **Do not ship an artifact
-  whose manifest lacks these fields.**
+- **Resolver:** PyPI package `static-ffmpeg` (exact version recorded in the
+  sidecar manifest as `ffmpeg.resolver_package_version`). Build scripts call
+  the **shared** auditor `desktop/scripts/ffmpeg_license_audit.py` from both
+  `build-sidecar.sh` and `build-sidecar.ps1` so classification order cannot drift.
+- **Platform download:** `static_ffmpeg` fetches a platform zip from
+  `https://github.com/zackees/ffmpeg_bins` (e.g. `.../v8.0/linux.zip`). The
+  exact URL, platform key, and revision are written to the manifest fields
+  `download_url`, `platform_key`, and `download_revision`.
+- **License gate (build-time, fail-closed):**
+  1. Run `ffmpeg -version` and parse the **version line** + full **configuration**.
+  2. If configuration contains `--enable-nonfree` → **fail immediately**
+     (checked **before** GPL/LGPL classification, even when `--enable-gpl` is also set).
+  3. Else if `--enable-gpl` (and not `--disable-gpl`) → **GPL**; else **LGPL**.
+  4. Stage into `desktop/pyinstaller/dist/ffmpeg-notices/`:
+     - license text (`COPYING.GPLv3` or `COPYING.LGPLv2.1`) from
+       `desktop/third_party/ffmpeg/`;
+     - `SOURCE_OFFER.txt` that embeds the **exact** `ffmpeg_sha256` /
+       `ffprobe_sha256` and the download URL/revision.
+  5. Refuse to write `sidecar-manifest.json` if license text or source-offer is
+     missing, hash-mismatched, or does not reference the audited binary hashes.
+- **Manifest fields (authoritative for a build):**
+  `ffmpeg_version_line`, `ffmpeg_configuration`, `ffmpeg_license`,
+  `ffmpeg_sha256`, `ffprobe_sha256`, `resolver_package_version`,
+  `download_url`, `download_revision`, `license_artifacts.*`.
 - **Distribution duties:**
-  - **LGPL** build: you may distribute the binary with this notice and offer
-    corresponding source for FFmpeg under LGPL terms.
-  - **GPL** build: the combined work’s distribution obligations follow GPL for
-    the FFmpeg portion; ship GPL license text and corresponding source offer as
-    required by the FFmpeg project for that build.
+  - **LGPL** build: distribute with this notice + staged LGPL text + source offer.
+  - **GPL** build: ship GPL license text and corresponding source offer for the
+    FFmpeg portion as required for that build.
 - **Runtime:** when `sys.frozen`, `app.media` prefers the pair bundled under
   `ffmpeg/` inside the PyInstaller archive; development builds may use system
   PATH or the `static-ffmpeg` package fetch.
@@ -32,16 +44,20 @@ they download on first use into the user data directory.
 ```bash
 # After desktop/scripts/build-sidecar.sh (or .ps1):
 python3 -c "import json;print(json.load(open('desktop/pyinstaller/dist/sidecar-manifest.json'))['ffmpeg'])"
+ls desktop/pyinstaller/dist/ffmpeg-notices/
 ```
 
-Releasers must paste the actual `ffmpeg_version_line`, `ffmpeg_license`, and
-SHA-256 from the manifest of the **published** artifact into release notes.
+Releasers must paste the actual `ffmpeg_version_line`, `ffmpeg_license`,
+SHA-256 digests, and `download_url` from the **published** artifact manifest
+into release notes, and keep `ffmpeg-notices/` next to the binary.
 
 ### Provenance note
 
 Exact version/configuration vary by OS/arch and by the `static-ffmpeg` wheel
-revision. There is **no** fixed “always LGPL” claim — only the audited
-`ffmpeg_license` field in the sidecar manifest for that build is authoritative.
+revision / `ffmpeg_bins` zip revision. There is **no** fixed “always LGPL”
+claim — only the audited `ffmpeg_license` field in the sidecar manifest for
+that build is authoritative. Bundled license texts live under
+`desktop/third_party/ffmpeg/` and are copied into the artifact notices dir.
 
 ## Native ML runtimes (sidecar)
 

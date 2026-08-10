@@ -149,14 +149,140 @@ pub fn sidecar_binary_name_for_triple(triple: &str) -> String {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Stdout drain + READY wait (pure std — unit-testable without Tauri/WebKit)
+// ---------------------------------------------------------------------------
+
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::thread;
+use std::time::{Duration, Instant};
+
+/// Spawn a stdout drain thread that:
+/// - always appends raw bytes to `log_path` for the process lifetime (R2-2);
+/// - sends at most one READY port (or error) on the channel;
+/// - never stops draining just because the startup receiver was dropped.
+pub fn spawn_stdout_drain(
+    stdout: impl Read + Send + 'static,
+    log_path: PathBuf,
+) -> (
+    mpsc::Receiver<Result<u16, SidecarError>>,
+    thread::JoinHandle<()>,
+) {
+    let (tx, rx) = mpsc::channel::<Result<u16, SidecarError>>();
+    let join = thread::spawn(move || {
+        let mut reader = stdout;
+        let mut buf = [0u8; 512];
+        let mut parser = ReadyParser::new();
+        let mut log = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .ok();
+        // Option so we can drop the sender after first READY/error and keep reading.
+        let mut tx_opt = Some(tx);
+        loop {
+            match reader.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => {
+                    if let Some(ref mut f) = log {
+                        let _ = f.write_all(&buf[..n]);
+                        let _ = f.flush();
+                    }
+                    let s = String::from_utf8_lossy(&buf[..n]);
+                    if let Some(ref tx) = tx_opt {
+                        match parser.feed(&s) {
+                            Ok(Some(port)) => {
+                                let _ = tx.send(Ok(port));
+                                // Stop sending startup events; keep draining stdout.
+                                tx_opt = None;
+                            }
+                            Ok(None) => {}
+                            Err(e) => {
+                                let _ = tx.send(Err(e));
+                                tx_opt = None;
+                            }
+                        }
+                    } else {
+                        // Still parse for logging duplicate READY (best-effort).
+                        let _ = parser.feed(&s);
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => {
+                    if let Some(tx) = tx_opt.take() {
+                        let _ = tx.send(Err(SidecarError::Spawn(format!("stdout read: {e}"))));
+                    }
+                    break;
+                }
+            }
+        }
+    });
+    (rx, join)
+}
+
+/// Wait for READY from drain channel with deadline + exit polling.
+/// Returns (port, join_handle). Caller owns the join handle for process lifetime.
+pub fn wait_for_ready_from_drain(
+    rx: mpsc::Receiver<Result<u16, SidecarError>>,
+    join: thread::JoinHandle<()>,
+    mut try_exit: impl FnMut() -> Result<Option<Option<i32>>, SidecarError>,
+    deadline: Instant,
+) -> Result<(u16, thread::JoinHandle<()>), SidecarError> {
+    loop {
+        let now = Instant::now();
+        if now >= deadline {
+            return Err(SidecarError::ReadyTimeout);
+        }
+        match try_exit()? {
+            Some(code) => {
+                return Err(SidecarError::ExitedBeforeReady(code));
+            }
+            None => {}
+        }
+        let slice = deadline
+            .saturating_duration_since(now)
+            .min(Duration::from_millis(200));
+        match rx.recv_timeout(slice) {
+            Ok(Ok(port)) => {
+                println!("VITRANSCRIPT_READY http://127.0.0.1:{port}");
+                let _ = std::io::stdout().flush();
+                return Ok((port, join));
+            }
+            Ok(Err(e)) => return Err(e),
+            Err(RecvTimeoutError::Timeout) => continue,
+            Err(RecvTimeoutError::Disconnected) => match try_exit()? {
+                Some(code) => return Err(SidecarError::ExitedBeforeReady(code)),
+                None if Instant::now() >= deadline => return Err(SidecarError::ReadyTimeout),
+                None => {
+                    return Err(SidecarError::Spawn("stdout closed before READY".into()));
+                }
+            },
+        }
+    }
+}
+
+/// Signal a Unix process group (negative pid). Used by runtime + integration tests.
+#[cfg(unix)]
+pub fn unix_kill_pg(pgid: i32, sig: i32) {
+    if pgid <= 0 {
+        return;
+    }
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    unsafe {
+        let _ = kill(-pgid, sig);
+    }
+}
+
 #[cfg(feature = "gui")]
 mod runtime {
     use super::*;
-    use std::io::{Read, Write};
     use std::path::{Path, PathBuf};
     use std::process::{Child, Command, Stdio};
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::mpsc::{self, RecvTimeoutError};
     use std::sync::Arc;
     use std::thread;
     use std::time::{Duration, Instant};
@@ -221,6 +347,8 @@ mod runtime {
         pgid: i32,
         #[cfg(windows)]
         win: windows_proc::WinProc,
+        /// Keeps the stdout drain thread alive for the process lifetime (R2-2).
+        stdout_reader: Option<thread::JoinHandle<()>>,
         cleaned: bool,
     }
 
@@ -249,15 +377,20 @@ mod runtime {
             }
         }
 
+        /// Wait up to `wait` for graceful exit, then always clean the process tree.
+        ///
+        /// Important (finding #4): do **not** return early just because the leader
+        /// reaped — descendants may still be alive. Always run group/job kill after
+        /// the grace window (or immediately after leader exit so orphans die).
         pub fn wait_exit_or_kill(&mut self, wait: Duration) {
             let start = Instant::now();
             while start.elapsed() < wait {
                 if self.try_reap() {
-                    self.cleaned = true;
-                    return;
+                    break;
                 }
                 thread::sleep(Duration::from_millis(100));
             }
+            // Always signal group/job — even if leader already exited.
             self.force_kill_tree();
             let end = Instant::now() + Duration::from_secs(3);
             while Instant::now() < end {
@@ -266,6 +399,7 @@ mod runtime {
                 }
                 thread::sleep(Duration::from_millis(50));
             }
+            self.join_stdout_reader();
             self.cleaned = true;
         }
 
@@ -280,7 +414,14 @@ mod runtime {
             }
         }
 
+        fn join_stdout_reader(&mut self) {
+            if let Some(h) = self.stdout_reader.take() {
+                let _ = h.join();
+            }
+        }
+
         /// TERM group/job → grace → KILL group/job. Idempotent.
+        /// Safe to call when the leader is already reaped (still signals group).
         pub fn force_kill_tree(&mut self) {
             #[cfg(unix)]
             {
@@ -304,22 +445,24 @@ mod runtime {
 
     impl Drop for SidecarState {
         fn drop(&mut self) {
+            // Drop must never skip tree cleanup (#4). force_kill is idempotent;
+            // even after leader reap we still signal the group/job.
             if !self.cleaned {
                 self.force_kill_tree();
+            } else {
+                // Re-signal once more without grace sleep to catch late descendants.
+                #[cfg(unix)]
+                {
+                    if self.pgid > 0 {
+                        unix_kill_pg(self.pgid, 9);
+                    }
+                }
+                #[cfg(windows)]
+                {
+                    self.win.terminate_via_job();
+                }
             }
-        }
-    }
-
-    #[cfg(unix)]
-    fn unix_kill_pg(pgid: i32, sig: i32) {
-        if pgid <= 0 {
-            return;
-        }
-        extern "C" {
-            fn kill(pid: i32, sig: i32) -> i32;
-        }
-        unsafe {
-            let _ = kill(-pgid, sig);
+            self.join_stdout_reader();
         }
     }
 
@@ -334,6 +477,60 @@ mod runtime {
     // -----------------------------------------------------------------------
     // Unix spawn + READY wait
     // -----------------------------------------------------------------------
+
+    #[cfg(unix)]
+    fn install_parent_death_watch() {
+        // Linux: kernel delivers signal when parent dies (survives exec).
+        #[cfg(target_os = "linux")]
+        {
+            const PR_SET_PDEATHSIG: i32 = 1;
+            extern "C" {
+                fn prctl(option: i32, arg2: u64, arg3: u64, arg4: u64, arg5: u64) -> i32;
+                fn getppid() -> i32;
+                fn raise(sig: i32) -> i32;
+            }
+            unsafe {
+                let _ = prctl(PR_SET_PDEATHSIG, 15, 0, 0, 0); // SIGTERM
+                // Race: parent already dead between fork and prctl.
+                if getppid() == 1 {
+                    let _ = raise(15);
+                }
+            }
+        }
+        // macOS / other Unix: poll parent pid from a forked watcher (survives exec
+        // of the main child). Watcher is in the same process group and kills the
+        // group when the original parent (Tauri) disappears.
+        #[cfg(not(target_os = "linux"))]
+        {
+            extern "C" {
+                fn fork() -> i32;
+                fn getppid() -> i32;
+                fn kill(pid: i32, sig: i32) -> i32;
+                fn _exit(code: i32) -> !;
+                fn usleep(usec: u32) -> i32;
+            }
+            unsafe {
+                let tauri_pid = getppid();
+                match fork() {
+                    -1 => {}
+                    0 => {
+                        // Watcher process.
+                        loop {
+                            if kill(tauri_pid, 0) != 0 {
+                                // Kill our process group (sidecar leader + descendants).
+                                let _ = kill(0, 15);
+                                usleep(2_000_000);
+                                let _ = kill(0, 9);
+                                _exit(0);
+                            }
+                            usleep(500_000);
+                        }
+                    }
+                    _ => {} // continue to exec in the main child
+                }
+            }
+        }
+    }
 
     #[cfg(unix)]
     fn spawn_unix(binary: &Path, token: &str, log_path: &Path) -> Result<(Child, i32), SidecarError> {
@@ -354,6 +551,13 @@ mod runtime {
             .stderr(Stdio::from(log_err));
         // New process group; spawn fails if setpgid fails.
         cmd.process_group(0);
+        // Parent-death strategy after setpgid (pre_exec runs in child).
+        unsafe {
+            cmd.pre_exec(|| {
+                install_parent_death_watch();
+                Ok(())
+            });
+        }
         let child = cmd.spawn().map_err(|e| SidecarError::Spawn(e.to_string()))?;
         let pgid = child.id() as i32;
         let _ = log_file;
@@ -371,77 +575,6 @@ mod runtime {
         let _ = child.wait();
     }
 
-    /// Drain stdout on a dedicated thread; main loop uses recv_timeout against deadline.
-    fn wait_for_ready_reader(
-        stdout: impl Read + Send + 'static,
-        mut try_exit: impl FnMut() -> Result<Option<Option<i32>>, SidecarError>,
-        log_path: &Path,
-        deadline: Instant,
-    ) -> Result<u16, SidecarError> {
-        let (tx, rx) = mpsc::channel::<Result<Vec<u8>, String>>();
-        thread::spawn(move || {
-            let mut reader = stdout;
-            let mut buf = [0u8; 512];
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => {
-                        if tx.send(Ok(buf[..n].to_vec())).is_err() {
-                            break;
-                        }
-                    }
-                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                    Err(e) => {
-                        let _ = tx.send(Err(e.to_string()));
-                        break;
-                    }
-                }
-            }
-        });
-
-        let mut parser = ReadyParser::new();
-        let mut log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_path)?;
-
-        loop {
-            let now = Instant::now();
-            if now >= deadline {
-                return Err(SidecarError::ReadyTimeout);
-            }
-            match try_exit()? {
-                Some(code) if !parser.seen() => {
-                    return Err(SidecarError::ExitedBeforeReady(code));
-                }
-                _ => {}
-            }
-            let slice = deadline
-                .saturating_duration_since(now)
-                .min(Duration::from_millis(200));
-            match rx.recv_timeout(slice) {
-                Ok(Ok(bytes)) => {
-                    let s = String::from_utf8_lossy(&bytes);
-                    let _ = log.write_all(s.as_bytes());
-                    if let Some(port) = parser.feed(&s)? {
-                        println!("VITRANSCRIPT_READY http://127.0.0.1:{port}");
-                        let _ = std::io::stdout().flush();
-                        return Ok(port);
-                    }
-                }
-                Ok(Err(e)) => return Err(SidecarError::Spawn(format!("stdout read: {e}"))),
-                Err(RecvTimeoutError::Timeout) => continue,
-                Err(RecvTimeoutError::Disconnected) => match try_exit()? {
-                    Some(code) => return Err(SidecarError::ExitedBeforeReady(code)),
-                    None if Instant::now() >= deadline => return Err(SidecarError::ReadyTimeout),
-                    None => {
-                        return Err(SidecarError::Spawn("stdout closed before READY".into()));
-                    }
-                },
-            }
-        }
-    }
-
     #[cfg(unix)]
     pub fn start_and_ready(binary: &Path, data_log_dir: &Path) -> Result<SidecarState, SidecarError> {
         let token = generate_token();
@@ -457,18 +590,19 @@ mod runtime {
             }
         };
 
-        let port = {
+        let (rx, join) = spawn_stdout_drain(stdout, log_path.clone());
+        let (port, stdout_reader) = {
             let child_ref = &mut child;
-            match wait_for_ready_reader(
-                stdout,
+            match wait_for_ready_from_drain(
+                rx,
+                join,
                 || match child_ref.try_wait()? {
                     Some(st) => Ok(Some(st.code())),
                     None => Ok(None),
                 },
-                &log_path,
                 deadline,
             ) {
-                Ok(p) => p,
+                Ok(v) => v,
                 Err(e) => {
                     force_kill_unix(&mut child, pgid);
                     return Err(e);
@@ -478,6 +612,7 @@ mod runtime {
 
         if let Err(e) = poll_healthz(port, deadline) {
             force_kill_unix(&mut child, pgid);
+            let _ = stdout_reader.join();
             return Err(e);
         }
 
@@ -489,6 +624,7 @@ mod runtime {
             shutting_down: Arc::new(AtomicBool::new(false)),
             child,
             pgid,
+            stdout_reader: Some(stdout_reader),
             cleaned: false,
         })
     }
@@ -513,15 +649,16 @@ mod runtime {
             }
         };
 
-        let port = {
+        let (rx, join) = spawn_stdout_drain(stdout, log_path.clone());
+        let (port, stdout_reader) = {
             let win_ref = &mut win;
-            match wait_for_ready_reader(
-                stdout,
+            match wait_for_ready_from_drain(
+                rx,
+                join,
                 || Ok(win_ref.try_wait().map(Some)),
-                &log_path,
                 deadline,
             ) {
-                Ok(p) => p,
+                Ok(v) => v,
                 Err(e) => {
                     win.terminate_via_job();
                     return Err(e);
@@ -531,6 +668,7 @@ mod runtime {
 
         if let Err(e) = poll_healthz(port, deadline) {
             win.terminate_via_job();
+            let _ = stdout_reader.join();
             return Err(e);
         }
 
@@ -541,6 +679,7 @@ mod runtime {
             log_path,
             shutting_down: Arc::new(AtomicBool::new(false)),
             win,
+            stdout_reader: Some(stdout_reader),
             cleaned: false,
         })
     }
@@ -921,5 +1060,113 @@ mod tests {
         assert!(!is_allowed_navigation("https://127.0.0.1:8756/", 8756));
         assert!(!is_allowed_navigation("http://127.0.0.1:9999/", 8756));
         assert!(!is_allowed_navigation("http://localhost:8756/", 8756));
+    }
+
+    /// R2-7: fake child keeps stdout open (no READY) → wait hits deadline.
+    #[cfg(unix)]
+    #[test]
+    fn ready_deadline_while_stdout_open() {
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+        use std::time::{Duration, Instant};
+
+        // UnixStream pair: writer held open so reader never gets EOF.
+        let (mut writer, reader) = UnixStream::pair().expect("pair");
+        writer
+            .write_all(b"not-ready-yet\n")
+            .expect("write preamble");
+        let _hold = writer; // keep write end open
+
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("t.log");
+        let (rx, join) = spawn_stdout_drain(reader, log);
+        let deadline = Instant::now() + Duration::from_millis(400);
+        let started = Instant::now();
+        let err = wait_for_ready_from_drain(rx, join, || Ok(None), deadline).unwrap_err();
+        assert!(
+            err.to_string().contains("hết thời gian") || matches!(err, SidecarError::ReadyTimeout),
+            "got {err}"
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    /// R2-7: after READY is delivered, drain thread keeps reading (no broken-pipe
+    /// from dropping the startup channel mid-stream).
+    #[cfg(unix)]
+    #[test]
+    fn drain_continues_after_ready() {
+        use std::io::Write;
+        use std::os::unix::net::UnixStream;
+        use std::time::{Duration, Instant};
+
+        let (mut writer, reader) = UnixStream::pair().expect("pair");
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("t.log");
+        let (rx, join) = spawn_stdout_drain(reader, log.clone());
+
+        // Emit READY then more log lines.
+        writer
+            .write_all(b"VITRANSCRIPT_READY http://127.0.0.1:8765\n")
+            .unwrap();
+        writer
+            .write_all(b"INFO: uvicorn running after ready\n")
+            .unwrap();
+        writer.flush().unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let (port, handle) = wait_for_ready_from_drain(rx, join, || Ok(None), deadline).unwrap();
+        assert_eq!(port, 8765);
+
+        // More output after READY must still land in the log (reader still alive).
+        writer.write_all(b"post-ready-model-output\n").unwrap();
+        writer.flush().unwrap();
+        drop(writer); // EOF so drain exits
+        let _ = handle.join();
+
+        let body = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(
+            body.contains("post-ready-model-output"),
+            "log missing post-READY bytes: {body:?}"
+        );
+        assert!(body.contains("uvicorn running after ready"));
+    }
+
+    /// R2-7: Unix process group kill reaps leader + descendant (sleep grandchild).
+    #[cfg(unix)]
+    #[test]
+    fn unix_process_group_kills_descendant() {
+        use std::os::unix::process::CommandExt;
+        use std::process::{Command, Stdio};
+        use std::thread;
+        use std::time::Duration;
+
+        // Shell becomes group leader; spawns a sleep descendant.
+        let mut child = Command::new("bash")
+            .args(["-c", "sleep 120 & echo $!; wait"])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .expect("spawn bash");
+        let pgid = child.id() as i32;
+        let mut stdout = child.stdout.take().unwrap();
+        let mut buf = String::new();
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut buf);
+        let descendant: Option<i32> = buf.trim().parse().ok();
+
+        unix_kill_pg(pgid, 15);
+        thread::sleep(Duration::from_millis(200));
+        unix_kill_pg(pgid, 9);
+        let _ = child.kill();
+        let _ = child.wait();
+
+        if let Some(dpid) = descendant {
+            extern "C" {
+                fn kill(pid: i32, sig: i32) -> i32;
+            }
+            thread::sleep(Duration::from_millis(100));
+            let alive = unsafe { kill(dpid, 0) == 0 };
+            assert!(!alive, "descendant {dpid} should be dead after group kill");
+        }
     }
 }
