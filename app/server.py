@@ -1,21 +1,22 @@
 """Web server local: FastAPI + job chạy nền trong thread. Chạy: python -m app.server"""
+from __future__ import annotations
+
 import json
 import logging
-import socket
 import threading
 import time
 import traceback
 import uuid
-import webbrowser
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
 
-import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
+from pydantic import BaseModel, Field
 
 from . import checkpoint, config, export, media, pipeline, segment
+from . import server_runtime as runtime
 from .segment import Sentence
 
 logging.basicConfig(
@@ -44,6 +45,16 @@ _FAVICON = (
 # Chính sách file dài — chống OOM trên máy CPU yếu (xem docs/04-plan-long-audio.md)
 _MAX_INPUT_SECONDS = 14_400  # 4 giờ: từ chối, khuyên cắt file
 _MAX_DIARIZE_SECONDS = 7_200  # 2 giờ: tự tắt diarization
+
+
+class LocalJobRequest(BaseModel):
+    path: str = Field(..., min_length=1)
+    model: str
+    language: str = "vi"
+    diarize: bool = True
+    punctuate: bool = True
+    num_speakers: int = Field(default=0, ge=0, le=20)
+    glossary: str = ""
 
 
 def _long_audio_policy(duration: float | None, diarize: bool) -> tuple[bool, str | None]:
@@ -117,6 +128,39 @@ def _load_job_from_disk(job_id: str) -> dict | None:
         return None
 
 
+def _client_host(request: Request) -> str | None:
+    """Peer host từ socket — không tin X-Forwarded-For / proxy headers."""
+    if request.client is None:
+        return None
+    return request.client.host
+
+
+def _require_loopback_and_token(request: Request) -> None:
+    """Auth desktop: loopback peer + instance token (constant-time)."""
+    host = _client_host(request)
+    if not runtime.is_loopback_host(host):
+        raise HTTPException(403, "Chỉ chấp nhận kết nối loopback")
+
+    expected = runtime.configured_instance_token()
+    if expected is None:
+        raise HTTPException(404, "Shutdown/local token chưa được cấu hình")
+
+    provided = request.headers.get(runtime.TOKEN_HEADER)
+    if not runtime.tokens_match(expected, provided):
+        raise HTTPException(403, "Token không hợp lệ")
+
+
+def _request_shutdown() -> None:
+    """Đặt uvicorn.Server.should_exit = True (gọi sau khi response 202 đã gửi)."""
+    srv = getattr(app.state, "uvicorn_server", None)
+    if srv is not None:
+        srv.should_exit = True
+        log.info("Nhận lệnh shutdown — đang thoát server")
+    else:
+        # TestClient / không có uvicorn: không làm gì thêm
+        log.info("Shutdown callback (không có uvicorn server)")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index() -> str:
     return (_STATIC / "index.html").read_text(encoding="utf-8")
@@ -125,6 +169,12 @@ def index() -> str:
 @app.get("/favicon.ico")
 def favicon() -> Response:
     return Response(content=_FAVICON, media_type="image/png")
+
+
+@app.get("/healthz")
+def healthz():
+    port = getattr(app.state, "actual_port", None)
+    return {"status": "ok", "port": port}
 
 
 @app.get("/api/meta")
@@ -149,7 +199,14 @@ def meta():
     }
 
 
-def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
+def _run_job(
+    job_id: str,
+    input_path: Path,
+    opts: dict,
+    output_dir: Path | None = None,
+) -> None:
+    """Chạy pipeline. output_dir mặc định = input_path.parent (tương thích upload)."""
+    work_dir = output_dir if output_dir is not None else input_path.parent
     last_save = 0.0
 
     def progress(stage: str, pct: float, msg: str):
@@ -170,7 +227,7 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
         log.info("Job %s bắt đầu: %s model=%s", job_id, input_path.name, opts["model"])
         result = pipeline.run(
             input_path,
-            input_path.parent,
+            work_dir,
             opts["model"],
             language=opts["language"],
             enable_punctuation=opts["punctuate"],
@@ -217,6 +274,76 @@ def _run_job(job_id: str, input_path: Path, opts: dict) -> None:
                 JOBS.pop(job_id, None)
 
 
+def _reserve_job(filename: str, model: str, punctuate: bool) -> tuple[str, dict]:
+    """Đặt chỗ nguyên tử 1 job running. Raise 409 nếu đang có job."""
+    job_id = uuid.uuid4().hex[:12]
+    job = {
+        "status": "running",
+        "stage": "queued",
+        "percent": 0,
+        "message": "Đang chuẩn bị…",
+        "filename": filename,
+        "model": model,
+        "punctuate": punctuate,
+    }
+    with _JOBS_LOCK:
+        if any(j.get("status") == "running" for j in JOBS.values()):
+            raise HTTPException(
+                409,
+                "Đang có job khác chạy. Vui lòng đợi xong rồi thử lại.",
+            )
+        JOBS[job_id] = job
+    _save_job(job_id, job)
+    return job_id, job
+
+
+def _release_job(job_id: str) -> None:
+    with _JOBS_LOCK:
+        JOBS.pop(job_id, None)
+
+
+def _prepare_and_start_job(
+    job_id: str,
+    input_path: Path,
+    output_dir: Path,
+    *,
+    model: str,
+    language: str,
+    diarize: bool,
+    punctuate: bool,
+    num_speakers: int,
+    glossary: str,
+) -> None:
+    """Áp long-audio policy, settings, start thread. Caller nhả reservation nếu raise."""
+    duration = media.duration_seconds(input_path)
+    diarize_eff, note = _long_audio_policy(duration, diarize)
+    if note:
+        with _JOBS_LOCK:
+            if job_id in JOBS:
+                JOBS[job_id]["note"] = note
+                _save_job(job_id, JOBS[job_id])
+
+    config.save_settings({
+        "model": model, "language": language, "punctuate": punctuate,
+    })
+    config.save_glossary_text(glossary)
+
+    opts = {
+        "model": model,
+        "language": language,
+        "diarize": diarize_eff,
+        "punctuate": punctuate,
+        "num_speakers": num_speakers,
+        "glossary": glossary,
+    }
+    t = threading.Thread(
+        target=_run_job,
+        args=(job_id, input_path, opts, output_dir),
+        daemon=True,
+    )
+    t.start()
+
+
 @app.post("/api/jobs")
 async def create_job(
     file: Annotated[UploadFile, File()],
@@ -233,26 +360,7 @@ async def create_job(
     if not media.is_supported(name):
         raise HTTPException(400, f"Định dạng {name.suffix} chưa hỗ trợ")
 
-    job_id = uuid.uuid4().hex[:12]
-    job = {
-        "status": "running",
-        "stage": "queued",
-        "percent": 0,
-        "message": "Đang chuẩn bị…",
-        "filename": name.name,
-        "model": model,
-        "punctuate": punctuate,
-    }
-    # Đặt chỗ nguyên tử: kiểm tra "đang chạy" và ghi job trong cùng một lần giữ lock,
-    # tránh hai request cùng lọt qua kiểm tra rồi cùng khởi chạy.
-    with _JOBS_LOCK:
-        if any(j.get("status") == "running" for j in JOBS.values()):
-            raise HTTPException(
-                409,
-                "Đang có job khác chạy. Vui lòng đợi xong rồi thử lại.",
-            )
-        JOBS[job_id] = job
-    _save_job(job_id, job)
+    job_id, _job = _reserve_job(name.name, model, punctuate)
 
     # Nếu chuẩn bị file thất bại, phải nhả chỗ đã đặt — nếu không job "running"
     # sẽ kẹt vĩnh viễn và chặn mọi job sau.
@@ -265,38 +373,63 @@ async def create_job(
             while chunk := await file.read(1 << 20):
                 f.write(chunk)
 
-        duration = media.duration_seconds(input_path)
-        diarize, note = _long_audio_policy(duration, diarize)
-        if note:
-            with _JOBS_LOCK:
-                JOBS[job_id]["note"] = note
-            _save_job(job_id, JOBS[job_id])
-
-        config.save_settings({
-            "model": model, "language": language, "punctuate": punctuate,
-        })
-        config.save_glossary_text(glossary)
-
-        opts = {
-            "model": model,
-            "language": language,
-            "diarize": diarize,
-            "punctuate": punctuate,
-            "num_speakers": num_speakers,
-            "glossary": glossary,
-        }
-        # daemon: khi process bị tắt (Ctrl+C) thì job dừng theo, không giữ interpreter
-        # sống chờ transcript dài xong. Job dở dang được _get_job phục hồi từ disk.
-        # Tạo + start thread nằm trong try: nếu Thread.start() ném RuntimeError
-        # (vd không tạo được thread mới), chỗ đã đặt cũng phải được nhả — nếu
-        # không job "running" kẹt vĩnh viễn và mọi job sau đều nhận 409.
-        t = threading.Thread(target=_run_job, args=(job_id, input_path, opts), daemon=True)
-        t.start()
+        _prepare_and_start_job(
+            job_id,
+            input_path,
+            job_dir,
+            model=model,
+            language=language,
+            diarize=diarize,
+            punctuate=punctuate,
+            num_speakers=num_speakers,
+            glossary=glossary,
+        )
     except Exception:
-        with _JOBS_LOCK:
-            JOBS.pop(job_id, None)
+        _release_job(job_id)
         raise
     return {"job_id": job_id}
+
+
+@app.post("/api/jobs/local")
+async def create_local_job(body: LocalJobRequest, request: Request):
+    """Desktop: chạy job từ absolute path local (loopback + token). Không copy source."""
+    _require_loopback_and_token(request)
+
+    if body.model not in config.MODEL_REGISTRY:
+        raise HTTPException(400, "Model không hợp lệ")
+
+    try:
+        source = runtime.validate_local_media_path(body.path)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+
+    job_id, _job = _reserve_job(source.name, body.model, body.punctuate)
+    try:
+        job_dir = config.jobs_dir() / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        _prepare_and_start_job(
+            job_id,
+            source,
+            job_dir,
+            model=body.model,
+            language=body.language,
+            diarize=body.diarize,
+            punctuate=body.punctuate,
+            num_speakers=body.num_speakers,
+            glossary=body.glossary,
+        )
+    except Exception:
+        _release_job(job_id)
+        raise
+    return {"job_id": job_id}
+
+
+@app.post("/api/shutdown")
+async def shutdown(request: Request, background_tasks: BackgroundTasks):
+    """Graceful exit: 202 rồi đặt should_exit (sau khi response gửi)."""
+    _require_loopback_and_token(request)
+    background_tasks.add_task(_request_shutdown)
+    return Response(status_code=202)
 
 
 def _get_job(job_id: str) -> dict:
@@ -396,20 +529,8 @@ def download_audio(job_id: str):
     return FileResponse(p, filename=Path(job["filename"]).stem + p.suffix)
 
 
-def _free_port(start: int = 8756) -> int:
-    for port in range(start, start + 50):
-        with socket.socket() as s:
-            if s.connect_ex(("127.0.0.1", port)) != 0:
-                return port
-    raise RuntimeError("Không tìm được port trống")
-
-
 def main() -> None:
-    port = _free_port()
-    threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
-    print(f"\n  ViTranscript đang chạy tại http://127.0.0.1:{port}  (Ctrl+C để thoát)\n")
-    # log_level info để thấy job start/end khi debug
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    runtime.main_from_args(app)
 
 
 if __name__ == "__main__":

@@ -38,9 +38,9 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 > _Phần này tự động cập nhật khi commit vào main._
 
-**Tiến độ:** 17/21 task xong 🟢 | 3 đang chạy 🔵 | 1 chưa làm ⚪
+**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0 🟢, D1–D5 🔵 (plan Tauri)
 
-**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
+**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
 
 **Bảng tasks (xem chi tiết: [docs/03-tasks.md](docs/03-tasks.md)):**
 
@@ -48,15 +48,15 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 |---|------|-----------|---------|
 | 0 | Khung dự án (`pyproject.toml` + ruff, `.python-version`, package `app`) | 🟢 | Commit `uv.lock`; có `numpy>=1.26` |
 | 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17) |
-| 2 | Media/ffmpeg (`app/media.py`) | 🟢 | |
+| 2 | Media/ffmpeg (`app/media.py`) | 🟢 | Frozen ffmpeg resolver (desktop bundle) |
 | 3 | Transcribe faster-whisper (`app/transcribe.py`) | 🟢 | `hotwords` + fallback; cache 1 model/process |
 | 4 | Diarization sherpa-onnx (`app/diarize.py`) | 🟢 | |
 | 5 | Glossary 2 tầng (`app/glossary.py`) | 🟢 | |
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
-| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
+| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`) | 🟢 | 118 passed, 1 deselected |
+| 9 | Web server FastAPI (`app/server.py` + `server_runtime.py`) | 🟢 | READY/healthz/local/shutdown; 409 1 job |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
@@ -64,12 +64,15 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
+| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | Plan: `docs/superpowers/plans/2026-08-10-desktop-tauri.md` |
+| D1–D5 | PyInstaller / Tauri / native UI / CI / e2e Ubuntu | 🔵 | Đang triển khai trên nhánh desktop |
 
 **Rủi ro / việc treo đang mở:**
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
 - [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
+- [ ] Desktop: PyInstaller native libs + e2e Ubuntu (Task D1/D5)
 <!-- auto-update: end -->
 
 

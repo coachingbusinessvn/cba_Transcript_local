@@ -30,6 +30,12 @@
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
+| D0 | Desktop backend contract (READY, /healthz, local job, shutdown) | 🟢 | `app/server_runtime.py` + `tests/test_server_desktop.py` (52 test); plan Tauri 2026-08-10 |
+| D1 | PyInstaller sidecar spike | 🔵 | onefile + native libs + ffmpeg bundle |
+| D2 | Tauri shell + lifecycle | 🔵 | spawn READY, healthz, shutdown |
+| D3 | Native file bridge + menu + queue UI | 🔵 | grant-set, không tray |
+| D4 | Icon + build scripts + CI | 🔵 | matrix 4 target |
+| D5 | E2E Ubuntu scripts | 🔵 | headless sidecar + Xvfb smoke |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
 
