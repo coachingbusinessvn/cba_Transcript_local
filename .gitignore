@@ -32,3 +32,6 @@ desktop/src-tauri/binaries/vitranscript-sidecar-*
 desktop/src-tauri/gen/
 *.AppImage
 /tmp/
+
+# 1DevTool orchestration local state (per-machine, not project code)
+.1devtool/
