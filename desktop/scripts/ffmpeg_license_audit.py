@@ -31,10 +31,33 @@ RESOLVE_JSON = PYI_DIR / "_ffmpeg_resolve.json"
 FFMPEG_PATH_FILE = PYI_DIR / "_ffmpeg.path"
 FFPROBE_PATH_FILE = PYI_DIR / "_ffprobe.path"
 
-# Build recipe for static-ffmpeg prebuilt binaries (not corresponding source by itself).
-BUILD_RECIPE_URL = "https://github.com/zackees/ffmpeg_bins"
-# Official FFmpeg release tarball template — corresponding source for the version line.
+# Build/provenance repo for static_ffmpeg (orchestrates third-party binary providers).
+# NOT the ffmpeg_bins ZIP mirror — that only hosts prebuilt archives.
+BUILD_RECIPE_URL = "https://github.com/zackees/static_ffmpeg"
+# Binary-only mirror — never valid as corresponding source or build recipe.
+BINARY_BINS_REPO_MARKER = "ffmpeg_bins"
+# Official FFmpeg release tarball template — used only for pure release tags.
 FFMPEG_SOURCE_TARBALL_TMPL = "https://ffmpeg.org/releases/ffmpeg-{version}.tar.xz"
+# Exact corresponding source for git-describe binaries (-gHASH).
+FFMPEG_SOURCE_COMMIT_TMPL = "https://github.com/FFmpeg/FFmpeg/archive/{rev}.tar.xz"
+
+# Per-platform third-party binary providers used by static_ffmpeg v8.0 workflow.
+# Best-effort documentation for SOURCE_OFFER (not a build-from-source recipe).
+_PLATFORM_BINARY_PROVIDERS: dict[str, str] = {
+    "linux": "BtbN (github.com/BtbN/FFmpeg-Builds)",
+    "win32": "gyan.dev",
+    "win64": "gyan.dev",
+    "windows": "gyan.dev",
+    "macos": "evermeet / osxexperts / Homebrew",
+    "darwin": "evermeet / osxexperts / Homebrew",
+    "osx": "evermeet / osxexperts / Homebrew",
+}
+_DEFAULT_PROVIDER_NOTE = (
+    "platform-specific third-party builds "
+    "(Linux: BtbN; Windows: gyan.dev; macOS: evermeet/osxexperts/Homebrew)"
+)
+
+_GIT_REV_RE = re.compile(r"-g([0-9a-f]{7,40})\b", re.IGNORECASE)
 
 
 def sha256_file(path: Path | str) -> str:
@@ -109,7 +132,7 @@ def parse_ffmpeg_version(path: str) -> tuple[str, str]:
 
 
 def parse_ffmpeg_version_number(version_line: str) -> str | None:
-    """Extract numeric version from `ffmpeg -version` first line (e.g. n6.1 → 6.1)."""
+    """Extract numeric release prefix from `ffmpeg -version` (e.g. n6.1 → 6.1)."""
     m = re.search(
         r"ffmpeg version\s+n?(\d+\.\d+(?:\.\d+)?)",
         version_line or "",
@@ -118,8 +141,25 @@ def parse_ffmpeg_version_number(version_line: str) -> str | None:
     return m.group(1) if m else None
 
 
+def parse_ffmpeg_source_revision(version_line: str) -> str | None:
+    """Extract git hash from git-describe style version line (`-gHASH`).
+
+    Example: `ffmpeg version n8.0.1-48-g0592be14ff-20260116` → `0592be14ff`.
+    Pure release tags (no `-g`) return None.
+    """
+    m = _GIT_REV_RE.search(version_line or "")
+    return m.group(1).lower() if m else None
+
+
 def corresponding_source_url_for_version(version_line: str) -> str | None:
-    """Official FFmpeg source tarball URL matching the binary version line."""
+    """Corresponding FFmpeg source URL matching the binary version line.
+
+    - If the version line is git-describe (`-gHASH`), pin the exact commit archive.
+    - If it is a pure release tag, use the official release tarball.
+    """
+    rev = parse_ffmpeg_source_revision(version_line)
+    if rev:
+        return FFMPEG_SOURCE_COMMIT_TMPL.format(rev=rev)
     ver = parse_ffmpeg_version_number(version_line)
     if not ver:
         return None
@@ -140,16 +180,46 @@ def is_platform_binary_zip_url(url: str | None) -> bool:
         re.IGNORECASE,
     ):
         return True
-    if "ffmpeg_bins" in u.lower() and u.lower().endswith(".zip"):
+    if BINARY_BINS_REPO_MARKER in u.lower() and u.lower().endswith(".zip"):
         return True
     return False
+
+
+def is_binary_bins_repo_url(url: str | None) -> bool:
+    """True if URL points at the ffmpeg_bins binary mirror (not a build recipe)."""
+    if not url:
+        return False
+    return BINARY_BINS_REPO_MARKER in url.lower()
+
+
+def platform_binary_provider(platform_key: str | None) -> str:
+    """Human-readable third-party binary provider for a static_ffmpeg platform key."""
+    key = (platform_key or "").lower()
+    if not key:
+        return _DEFAULT_PROVIDER_NOTE
+    for marker, provider in _PLATFORM_BINARY_PROVIDERS.items():
+        if marker in key:
+            return provider
+    return _DEFAULT_PROVIDER_NOTE
 
 
 def validate_corresponding_source(
     binary_download_url: str | None,
     corresponding_source_url: str | None,
+    *,
+    version_line: str | None = None,
+    source_revision: str | None = None,
+    build_recipe_url: str | None = None,
 ) -> str | None:
-    """Return error message if corresponding source is missing/invalid, else None."""
+    """Return error message if corresponding source/recipe is invalid, else None.
+
+    Gate checks (fail-closed):
+    - corresponding_source_url must be present
+    - must differ from binary ZIP and must not itself be a platform binary ZIP
+    - if binary version has git revision `-gHASH`, source URL / source_revision
+      must pin that commit (release-only tarball X.Y.Z is rejected)
+    - build_recipe_url must not be the ffmpeg_bins binary mirror
+    """
     if not corresponding_source_url:
         return "corresponding_source_url missing"
     if binary_download_url and corresponding_source_url == binary_download_url:
@@ -160,6 +230,37 @@ def validate_corresponding_source(
     cs = corresponding_source_url.lower()
     if cs.endswith(".zip") and "ffmpeg.org" not in cs:
         return "corresponding_source_url looks like a binary ZIP, not source"
+    if is_binary_bins_repo_url(corresponding_source_url):
+        return "corresponding_source_url must not be the ffmpeg_bins binary repo"
+
+    rev_from_version = parse_ffmpeg_source_revision(version_line or "")
+    rev_from_field = (source_revision or "").strip().lower() or None
+    if rev_from_version and rev_from_field and rev_from_field != rev_from_version:
+        return (
+            f"source_revision {source_revision!r} does not match "
+            f"git revision -g{rev_from_version} from version line"
+        )
+    # Prefer revision from the binary version line (authoritative).
+    rev = rev_from_version or rev_from_field
+    if rev:
+        if rev not in cs:
+            if re.search(r"ffmpeg\.org/releases/ffmpeg-\d", cs):
+                return (
+                    f"binary version has git revision -g{rev} but corresponding_source_url "
+                    "points only to a release tarball (must pin commit archive)"
+                )
+            return (
+                f"corresponding_source_url must include source revision {rev} "
+                "(from binary git-describe)"
+            )
+
+    if build_recipe_url is not None:
+        if not build_recipe_url.strip():
+            return "build_recipe_url missing"
+        if is_binary_bins_repo_url(build_recipe_url):
+            return "build_recipe_url must not be the ffmpeg_bins binary ZIP repo"
+        if is_platform_binary_zip_url(build_recipe_url):
+            return "build_recipe_url must not be a platform binary ZIP"
     return None
 
 
@@ -190,6 +291,7 @@ def _static_ffmpeg_provenance() -> dict:
     except Exception as e:  # noqa: BLE001 — provenance best-effort then gate
         print(f"ERROR: cannot resolve static_ffmpeg provenance: {e}", file=sys.stderr)
         sys.exit(1)
+    provider = platform_binary_provider(platform_key)
     return {
         "resolver_package": "static-ffmpeg",
         "resolver_package_version": pkg_version,
@@ -200,6 +302,9 @@ def _static_ffmpeg_provenance() -> dict:
         "download_url": binary_download_url,
         "download_revision": revision,
         "build_recipe_url": BUILD_RECIPE_URL,
+        # Package version is the only pin available without building from source.
+        "recipe_revision": pkg_version,
+        "binary_provider": provider,
     }
 
 
@@ -227,7 +332,11 @@ def stage_license_artifacts(
     license_kind: str,
     meta: dict,
 ) -> dict:
-    """Copy license text(s) + write SOURCE_OFFER matched to binary hashes. Fail if missing."""
+    """Copy license text(s) + write SOURCE_OFFER matched to binary hashes. Fail if missing.
+
+    Fail-closed (HIGH-1): does NOT invent corresponding_source_url. Resolve must
+    write that field once; stage/write-manifest only consume and gate it.
+    """
     notices = out_dir / "ffmpeg-notices"
     notices.mkdir(parents=True, exist_ok=True)
 
@@ -251,17 +360,37 @@ def stage_license_artifacts(
 
     binary_url = meta.get("binary_download_url") or meta.get("download_url")
     source_url = meta.get("corresponding_source_url")
+    # HIGH-1: fail-closed — do not re-derive missing source from version line.
     if not source_url:
-        source_url = corresponding_source_url_for_version(
-            str(meta.get("ffmpeg_version_line") or "")
+        print(
+            "ERROR: corresponding_source_url missing "
+            "(fail-closed; resolve must set it once)",
+            file=sys.stderr,
         )
-    build_recipe = meta.get("build_recipe_url") or BUILD_RECIPE_URL
+        sys.exit(1)
 
-    err = validate_corresponding_source(binary_url, source_url)
+    version_line = str(meta.get("ffmpeg_version_line") or "")
+    source_revision = meta.get("source_revision")
+    if source_revision is None:
+        source_revision = parse_ffmpeg_source_revision(version_line)
+    build_recipe = meta.get("build_recipe_url") or BUILD_RECIPE_URL
+    recipe_revision = meta.get("recipe_revision")
+    binary_provider = meta.get("binary_provider") or platform_binary_provider(
+        str(meta.get("platform_key") or "") or None
+    )
+
+    err = validate_corresponding_source(
+        binary_url,
+        source_url,
+        version_line=version_line,
+        source_revision=str(source_revision) if source_revision else None,
+        build_recipe_url=str(build_recipe) if build_recipe else None,
+    )
     if err:
         print(f"ERROR: {err}", file=sys.stderr)
         sys.exit(1)
 
+    rev_display = source_revision or "(release tag — no git revision)"
     license_list = ", ".join(license_names)
     offer_body = (
         "Corresponding Source Offer — FFmpeg binaries bundled with ViTranscript\n"
@@ -275,20 +404,29 @@ def stage_license_artifacts(
         f"Resolver package: {meta.get('resolver_package')}"
         f"=={meta.get('resolver_package_version')}\n"
         f"Platform key: {meta.get('platform_key')}\n"
+        f"binary_provider (per-platform third-party build source):\n"
+        f"  {binary_provider}\n"
         f"binary_download_url (prebuilt ZIP — NOT corresponding source):\n"
         f"  {binary_url}\n"
         f"Download revision: {meta.get('download_revision')}\n\n"
-        f"corresponding_source_url (FFmpeg source tarball for this version):\n"
+        f"source_revision: {rev_display}\n"
+        f"corresponding_source_url (FFmpeg source for this exact binary):\n"
         f"  {source_url}\n"
-        f"build_recipe_url (static build scripts/config for the prebuilt binaries):\n"
-        f"  {build_recipe}\n\n"
+        f"build_recipe_url (static_ffmpeg orchestrator / provenance, not binary ZIP):\n"
+        f"  {build_recipe}\n"
+        f"recipe_revision: {recipe_revision}\n\n"
         "Written offer: the prebuilt ffmpeg/ffprobe binaries (hashed above) were\n"
-        "obtained from binary_download_url. Corresponding source is the official\n"
-        "FFmpeg release tarball at corresponding_source_url (version pinned to the\n"
-        "ffmpeg_version_line) together with the build recipe/config in the\n"
-        "ffmpeg_bins repository (build_recipe_url). The binary ZIP is NOT\n"
-        "corresponding source under GPL/LGPL.\n\n"
-        "Releasers must keep this offer next to the published sidecar artifact.\n"
+        "obtained via static-ffmpeg, which redistributes third-party static builds\n"
+        "per platform (see binary_provider). binary_download_url is a ZIP of those\n"
+        "binaries and is NOT corresponding source under GPL/LGPL.\n\n"
+        "Corresponding source for the FFmpeg code in the binary is pinned by\n"
+        "source_revision / corresponding_source_url (commit archive when the\n"
+        "version line is git-describe `-gHASH`; official release tarball only for\n"
+        "pure release tags). build_recipe_url points at the static_ffmpeg repo that\n"
+        "selects/downloads those third-party binaries — it is provenance, not a\n"
+        "bit-for-bit rebuild recipe of every dependency.\n\n"
+        "This is a best-effort offer for third-party prebuilt binaries. Releasers\n"
+        "must keep this offer next to the published sidecar artifact.\n"
         "Final compliance sign-off is required before public release.\n"
     )
     offer_path = notices / "SOURCE_OFFER.txt"
@@ -319,7 +457,10 @@ def stage_license_artifacts(
         "source_offer_sha256": offer_sha,
         "binary_download_url": binary_url,
         "corresponding_source_url": source_url,
+        "source_revision": source_revision,
         "build_recipe_url": build_recipe,
+        "recipe_revision": recipe_revision,
+        "binary_provider": binary_provider,
     }
 
 
@@ -338,8 +479,16 @@ def cmd_resolve(_args: argparse.Namespace) -> int:
         sys.exit(1)
 
     prov = _static_ffmpeg_provenance()
+    # Resolve may derive corresponding_source_url + source_revision once (best-effort).
+    source_revision = parse_ffmpeg_source_revision(version_line)
     source_url = corresponding_source_url_for_version(version_line)
-    err = validate_corresponding_source(prov.get("binary_download_url"), source_url)
+    err = validate_corresponding_source(
+        prov.get("binary_download_url"),
+        source_url,
+        version_line=version_line,
+        source_revision=source_revision,
+        build_recipe_url=prov.get("build_recipe_url"),
+    )
     if err:
         print(f"ERROR: cannot form corresponding source offer: {err}", file=sys.stderr)
         sys.exit(1)
@@ -361,6 +510,7 @@ def cmd_resolve(_args: argparse.Namespace) -> int:
         ),
         **prov,
         "corresponding_source_url": source_url,
+        "source_revision": source_revision,
         "os": platform.system(),
         "arch": platform.machine(),
         "python": sys.version.split()[0],
@@ -379,6 +529,8 @@ def cmd_resolve(_args: argparse.Namespace) -> int:
     print("OK", version_line, file=sys.stderr)
     print("OK binary_download_url=", prov.get("binary_download_url"), file=sys.stderr)
     print("OK corresponding_source_url=", source_url, file=sys.stderr)
+    print("OK source_revision=", source_revision, file=sys.stderr)
+    print("OK build_recipe_url=", prov.get("build_recipe_url"), file=sys.stderr)
     # stdout: paths for shells that want them
     print(ff)
     print(fp)
@@ -409,6 +561,8 @@ def cmd_write_manifest(args: argparse.Namespace) -> int:
         "ffmpeg_sha256",
         "ffprobe_sha256",
         "resolver_package_version",
+        # HIGH-1: corresponding_source_url must already be present in resolve meta.
+        "corresponding_source_url",
     ):
         if not ff_meta.get(key):
             print(f"ERROR: incomplete ffmpeg audit field: {key}", file=sys.stderr)
@@ -419,17 +573,29 @@ def cmd_write_manifest(args: argparse.Namespace) -> int:
         print("ERROR: incomplete ffmpeg audit field: binary_download_url", file=sys.stderr)
         sys.exit(1)
     ff_meta["binary_download_url"] = binary_url
-    # Ensure corresponding_source_url is set (recompute from version if missing).
-    source_url = ff_meta.get("corresponding_source_url") or corresponding_source_url_for_version(
-        str(ff_meta.get("ffmpeg_version_line") or "")
+
+    # HIGH-1: fail-closed — do not re-derive missing source from version line.
+    source_url = ff_meta.get("corresponding_source_url")
+    version_line = str(ff_meta.get("ffmpeg_version_line") or "")
+    source_revision = ff_meta.get("source_revision")
+    if source_revision is None:
+        source_revision = parse_ffmpeg_source_revision(version_line)
+        if source_revision:
+            ff_meta["source_revision"] = source_revision
+
+    if not ff_meta.get("build_recipe_url"):
+        ff_meta["build_recipe_url"] = BUILD_RECIPE_URL
+
+    err = validate_corresponding_source(
+        binary_url,
+        source_url,
+        version_line=version_line,
+        source_revision=str(source_revision) if source_revision else None,
+        build_recipe_url=str(ff_meta.get("build_recipe_url") or ""),
     )
-    err = validate_corresponding_source(binary_url, source_url)
     if err:
         print(f"ERROR: {err}", file=sys.stderr)
         sys.exit(1)
-    ff_meta["corresponding_source_url"] = source_url
-    if not ff_meta.get("build_recipe_url"):
-        ff_meta["build_recipe_url"] = BUILD_RECIPE_URL
 
     if ff_meta.get("ffmpeg_license") == "NONFREE":
         print("ERROR: NONFREE ffmpeg in resolve meta", file=sys.stderr)
@@ -467,10 +633,16 @@ def cmd_write_manifest(args: argparse.Namespace) -> int:
     if binary_url not in offer_text:
         print("ERROR: SOURCE_OFFER does not reference binary_download_url", file=sys.stderr)
         sys.exit(1)
-    # Gate again after staging: source must not equal binary ZIP
+    # Gate again after staging: source/recipe must still be valid
     staged_err = validate_corresponding_source(
         stage_info.get("binary_download_url") or binary_url,
         stage_info.get("corresponding_source_url") or source_url,
+        version_line=version_line,
+        source_revision=str(stage_info.get("source_revision") or source_revision or "")
+        or None,
+        build_recipe_url=str(
+            stage_info.get("build_recipe_url") or ff_meta.get("build_recipe_url") or ""
+        ),
     )
     if staged_err:
         print(f"ERROR: staged SOURCE_OFFER invalid: {staged_err}", file=sys.stderr)
@@ -516,7 +688,11 @@ def cmd_write_manifest(args: argparse.Namespace) -> int:
         "download_url": binary_url,  # alias: binary ZIP only
         "download_revision": ff_meta.get("download_revision"),
         "corresponding_source_url": source_url,
+        "source_revision": source_revision,
         "build_recipe_url": ff_meta.get("build_recipe_url") or BUILD_RECIPE_URL,
+        "recipe_revision": ff_meta.get("recipe_revision"),
+        "binary_provider": ff_meta.get("binary_provider")
+        or platform_binary_provider(str(ff_meta.get("platform_key") or "") or None),
         "license_artifacts": stage_info,
     }
 
