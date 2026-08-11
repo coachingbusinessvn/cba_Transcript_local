@@ -59,6 +59,59 @@ def _base_meta(
     }
 
 
+def test_canonical_license_kinds_are_single_source_of_truth(audit):
+    """Classifier free labels must equal CANONICAL/ALLOWED; NONFREE is reject-only.
+
+    Guards enum drift: if classify_configuration gains/drops a free-software label
+    without updating CANONICAL_LICENSE_KINDS / ALLOWED_LICENSE_KINDS, this fails.
+    CI workflow loads ALLOWED_LICENSE_KINDS from the same module.
+    """
+    expected_canonical = frozenset({"GPLv2", "GPLv3", "LGPLv2.1", "LGPLv3"})
+    assert audit.CANONICAL_LICENSE_KINDS == expected_canonical
+    assert audit.ALLOWED_LICENSE_KINDS == expected_canonical
+    assert audit.ALLOWED_LICENSE_KINDS == audit.CANONICAL_LICENSE_KINDS
+    assert "NONFREE" not in audit.ALLOWED_LICENSE_KINDS
+    assert audit.CLASSIFIER_LICENSE_KINDS == expected_canonical | {"NONFREE"}
+
+    # Exhaustive flag matrix → every free label the classifier can emit.
+    flag_cases = (
+        "--enable-nonfree",
+        "--enable-gpl --enable-nonfree",
+        "--enable-gpl",
+        "--enable-gpl --enable-libx264",
+        "--enable-gpl --enable-version3",
+        "--enable-gpl --enable-version3 --enable-libx264",
+        "",
+        "--enable-shared",
+        "--disable-ffplay --enable-shared",
+        "--disable-gpl --enable-shared",
+        "--enable-version3",
+        "--enable-version3 --enable-shared",
+        "--disable-gpl --enable-version3 --enable-shared",
+    )
+    produced = {audit.classify_configuration(cfg) for cfg in flag_cases}
+    free_produced = produced - {"NONFREE"}
+    assert free_produced == audit.CANONICAL_LICENSE_KINDS
+    assert free_produced == audit.ALLOWED_LICENSE_KINDS
+    assert "NONFREE" in produced
+    # Staging map must cover every allowed kind (aliases GPL/LGPL may also exist).
+    for kind in audit.ALLOWED_LICENSE_KINDS:
+        files = audit.license_files_for_kind(kind)
+        assert files, f"missing license file map for {kind}"
+
+
+def test_desktop_build_workflow_uses_allowed_license_kinds_not_legacy_enum():
+    """CI must not reintroduce legacy ('GPL','LGPL') assert; load ALLOWED_LICENSE_KINDS."""
+    yml = (ROOT / ".github" / "workflows" / "desktop-build.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "ALLOWED_LICENSE_KINDS" in yml
+    assert 'in ("GPL", "LGPL")' not in yml
+    assert "in ('GPL', 'LGPL')" not in yml
+    # Workflow imports the audit module rather than hard-coding a second enum.
+    assert "ffmpeg_license_audit" in yml
+
+
 def test_nonfree_before_gpl(audit):
     """--enable-nonfree must win even when --enable-gpl is also present."""
     cfg = "--prefix=/usr --enable-gpl --enable-nonfree --enable-libx264"

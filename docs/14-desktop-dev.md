@@ -177,7 +177,7 @@ Spec tự động đọc distribution metadata của `sherpa-onnx-core`, đưa t
 
 - **Resolver Script:** `desktop/scripts/ffmpeg_license_audit.py`.
 - **Cơ chế:**
-  1. Kiểm tra ưu tiên các bản build **NONFREE** / **GPL** / **LGPL** chính thức.
+  1. Phân loại license theo configure flags: **NONFREE** (reject) hoặc 4 label canonical **GPLv2 / GPLv3 / LGPLv2.1 / LGPLv3** (`CANONICAL_LICENSE_KINDS` / `ALLOWED_LICENSE_KINDS` — single source of truth; CI assert manifest qua cùng hằng này).
   2. Thực hiện trích xuất `ffmpeg -version` để lấy thông tin version line và configuration flags.
   3. Ghi manifest chẩn đoán tại `desktop/pyinstaller/dist/sidecar-manifest.json` và tạo thư mục `desktop/pyinstaller/ffmpeg-notices/` chứa `SOURCE_OFFER.txt` cùng giấy phép bản quyền tương ứng *(lưu ý: các file và thư mục này được tạo ra khi build, không có sẵn trong repo)*.
   4. Hai file `ffmpeg` và `ffprobe` được bundle trực tiếp vào thư mục `binaries` cấp phát của sidecar.

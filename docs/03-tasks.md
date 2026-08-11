@@ -21,7 +21,7 @@
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 160 passed, 1 deselected (CR-3/4/6 + RESIDUAL-1 HIGH-1/2 + LGPL tests) |
+| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 162 passed, 1 deselected (CR-3/4/6 + RESIDUAL-1 + CANONICAL_LICENSE_KINDS drift guard) |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 1 job; num_speakers 0..20 → 400 chuỗi (CR-6) |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | queue: activeBatchOptions (NEW-1), 409 limited retry, pollFailCount, formatDetail (CR-1/2/6/7) |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |

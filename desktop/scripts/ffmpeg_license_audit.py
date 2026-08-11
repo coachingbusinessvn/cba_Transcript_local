@@ -59,6 +59,21 @@ _DEFAULT_PROVIDER_NOTE = (
 
 _GIT_REV_RE = re.compile(r"-g([0-9a-f]{7,40})\b", re.IGNORECASE)
 
+# Canonical free-software labels from classify_configuration().
+# NONFREE is also returned by the classifier but is never allowed for distribution.
+CANONICAL_LICENSE_KINDS: frozenset[str] = frozenset(
+    {
+        "GPLv2",
+        "GPLv3",
+        "LGPLv2.1",
+        "LGPLv3",
+    }
+)
+# Distribution gate: same as canonical free-software set (reject NONFREE + unknowns).
+ALLOWED_LICENSE_KINDS: frozenset[str] = CANONICAL_LICENSE_KINDS
+# Full set the classifier may emit (for drift tests / docs).
+CLASSIFIER_LICENSE_KINDS: frozenset[str] = CANONICAL_LICENSE_KINDS | {"NONFREE"}
+
 
 def sha256_file(path: Path | str) -> str:
     h = hashlib.sha256()
@@ -70,6 +85,9 @@ def sha256_file(path: Path | str) -> str:
 
 def classify_configuration(configuration: str) -> str:
     """Classify ffmpeg configure flags into a concrete license kind.
+
+    Returns a member of CLASSIFIER_LICENSE_KINDS. Free-software outputs are
+    exactly CANONICAL_LICENSE_KINDS / ALLOWED_LICENSE_KINDS; NONFREE is reject-only.
 
     Order is intentional and must not drift between shells:
     1. --enable-nonfree → NONFREE (unconditional reject by callers)
@@ -471,11 +489,18 @@ def cmd_resolve(_args: argparse.Namespace) -> int:
     ff, fp = sfr.get_or_fetch_platform_executables_else_raise()
     version_line, configuration = parse_ffmpeg_version(ff)
     license_kind = classify_configuration(configuration)
-    if license_kind == "NONFREE":
-        print(
-            "ERROR: ffmpeg build is NONFREE (--enable-nonfree) — cannot distribute",
-            file=sys.stderr,
-        )
+    if license_kind not in ALLOWED_LICENSE_KINDS:
+        if license_kind == "NONFREE":
+            print(
+                "ERROR: ffmpeg build is NONFREE (--enable-nonfree) — cannot distribute",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"ERROR: ffmpeg license {license_kind!r} not in ALLOWED_LICENSE_KINDS "
+                f"{sorted(ALLOWED_LICENSE_KINDS)}",
+                file=sys.stderr,
+            )
         sys.exit(1)
 
     prov = _static_ffmpeg_provenance()
@@ -597,8 +622,13 @@ def cmd_write_manifest(args: argparse.Namespace) -> int:
         print(f"ERROR: {err}", file=sys.stderr)
         sys.exit(1)
 
-    if ff_meta.get("ffmpeg_license") == "NONFREE":
-        print("ERROR: NONFREE ffmpeg in resolve meta", file=sys.stderr)
+    license_kind = ff_meta.get("ffmpeg_license")
+    if license_kind not in ALLOWED_LICENSE_KINDS:
+        print(
+            f"ERROR: ffmpeg_license {license_kind!r} not allowed "
+            f"(need one of {sorted(ALLOWED_LICENSE_KINDS)}; NONFREE rejected)",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     # Re-stage notices into dist for the published artifact
