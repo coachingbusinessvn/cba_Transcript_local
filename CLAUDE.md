@@ -38,7 +38,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 > _Phần này tự động cập nhật khi commit vào main._
 
-**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D6 🟢 (+ CR-1..CR-10 + residual RESIDUAL-1/2, NEW-1/2), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
+**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D6 🟢 (+ CR-1..CR-10 + residual RESIDUAL-1 HIGH-1/2 + RESIDUAL-2 + NEW-1/2), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
 
 **Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
 
@@ -55,7 +55,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 149 passed, 1 deselected (CR-3/4/6 + residual source/LGPL tests) |
+| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 160 passed, 1 deselected (CR-3/4/6 + RESIDUAL-1 HIGH-1/2 + LGPL tests) |
 | 9 | Web server FastAPI (`app/server.py` + `server_runtime.py`) | 🟢 | READY/healthz/local/shutdown; 409 1 job; num_speakers 0..20 → 400 (CR-6) |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | queue: activeBatchOptions (NEW-1), 409 limited retry, pollFailCount, formatDetail (CR-1/2/6/7) |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
@@ -65,7 +65,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 | D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | reparse fail-closed + token compare_digest |
-| D1 | PyInstaller sidecar | 🟢 | ffmpeg audit: binary vs corresponding source (RESIDUAL-1); LGPLv3+GPLv3 texts (RESIDUAL-2); NONFREE-first |
+| D1 | PyInstaller sidecar | 🟢 | RESIDUAL-1: fail-closed source + git-rev pin + static_ffmpeg recipe (best-effort/sign-off); RESIDUAL-2 LGPLv3+GPLv3; NONFREE-first |
 | D2 | Tauri shell + lifecycle | 🟢 | CR-5 WaitForSingleObject + NEW-2 WAIT_FAILED log; CR-9 Lazy READY; CR-10 url::Url; cargo 15 |
 | D3 | Native file bridge + queue UI | 🟢 | menu Open = pick_and_grant_paths (CR-8); queue CR-1/2/7 + activeBatchOptions |
 | D4 | Icon + build scripts + CI | 🟢 | offline fail closed; CI shared data-home + docker offline; abs path mount; tauri CLI cwd |

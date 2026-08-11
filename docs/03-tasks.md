@@ -21,7 +21,7 @@
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 149 passed, 1 deselected (CR-3/4/6 + residual source/LGPL tests) |
+| 8 | Unit tests core + desktop (`tests/test_core.py`, `test_punctuate.py`, `test_server_desktop.py`, `test_ffmpeg_license_audit.py`) | 🟢 | 160 passed, 1 deselected (CR-3/4/6 + RESIDUAL-1 HIGH-1/2 + LGPL tests) |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 1 job; num_speakers 0..20 → 400 chuỗi (CR-6) |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | queue: activeBatchOptions (NEW-1), 409 limited retry, pollFailCount, formatDetail (CR-1/2/6/7) |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
@@ -31,7 +31,7 @@
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 | D0 | Desktop backend contract (READY, /healthz, local job, shutdown) | 🟢 | reparse fail-closed + token hash+compare_digest |
-| D1 | PyInstaller sidecar spike | 🟢 | ffmpeg audit: binary vs corresponding source (RESIDUAL-1); LGPLv3+GPLv3 (RESIDUAL-2); NONFREE-first |
+| D1 | PyInstaller sidecar spike | 🟢 | RESIDUAL-1: fail-closed source + git-rev pin + static_ffmpeg recipe (best-effort/sign-off); RESIDUAL-2 LGPLv3+GPLv3; NONFREE-first |
 | D2 | Tauri shell + lifecycle | 🟢 | CR-5 WaitForSingleObject + NEW-2 WAIT_FAILED log; CR-9 Lazy READY; CR-10 url::Url; cargo 15 |
 | D3 | Native file bridge + menu + queue UI | 🟢 | menu Open = pick_and_grant_paths (CR-8); queue CR-1/2/7 + activeBatchOptions |
 | D4 | Icon + build scripts + CI | 🟢 | binary fail-closed; CI abs path mount; tauri CLI cwd (no --manifest-path) |
