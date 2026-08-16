@@ -256,6 +256,26 @@
       font-size: 0.9rem;
       padding: 12px 0;
     }
+    #queueList { list-style: none; margin: 0; padding: 0; }
+    #queueList li {
+      display: flex; justify-content: space-between; gap: 10px;
+      padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px;
+      margin-bottom: 6px; cursor: pointer; font-size: 0.9rem;
+    }
+    #queueList li:hover { background: var(--accent-soft); }
+    #queueList .q-status { font-weight: 600; white-space: nowrap; color: var(--muted); }
+    #queueList li.q-running .q-status { color: var(--accent); }
+    #queueList li.q-done .q-status { color: var(--ok); }
+    #queueList li.q-error .q-status { color: var(--danger); }
+    #queueList .q-retry {
+      margin-left: 0.5rem; font-size: 0.75rem; padding: 0.15rem 0.45rem;
+      border: 1px solid var(--border); border-radius: 4px; background: var(--surface);
+      cursor: pointer; color: var(--fg);
+    }
+    #queueList .q-retry:hover { background: var(--accent-soft); }
+    #queueCard { display: none; }
+    body.desktop #queueCard { display: block; }
+    body.desktop #fileInput { display: none !important; }
   </style>
 </head>
 <body>
@@ -274,6 +294,12 @@
         <input type="file" id="fileInput"
           accept=".mp3,.m4a,.wav,.aac,.flac,.ogg,.wma,.opus,.mov,.mp4,.mkv,.avi,.webm,.m4v" />
       </div>
+    </section>
+
+    <section class="card" id="queueCard">
+      <h2>Hàng đợi file (desktop)</h2>
+      <ul id="queueList"></ul>
+      <div class="hint">Nhiều file chạy tuần tự (1 job/lần). Bấm mục đã xong để xem lại kết quả.</div>
     </section>
 
     <section class="card">
@@ -399,6 +425,308 @@
       let speakerIds = [];        // speaker phát hiện được — tính 1 lần tại showResults
       let originalSpeakers = [];  // snapshot để tính override khi export
 
+      // Desktop mode: Tauri injects __TAURI__ / __TAURI_INTERNALS__
+      const isDesktop = !!(window.__TAURI_INTERNALS__ || window.__TAURI__);
+      if (isDesktop) document.body.classList.add("desktop");
+
+      // Queue: { path, name, status: wait|running|done|error, jobId?, options?, error? }
+      let queue = [];
+      let queueRunning = false;
+      let selectedLocalPath = null; // single-file display for desktop
+
+      async function tauriInvoke(cmd, args) {
+        if (window.__TAURI__ && window.__TAURI__.core && window.__TAURI__.core.invoke) {
+          return window.__TAURI__.core.invoke(cmd, args);
+        }
+        if (window.__TAURI_INTERNALS__ && window.__TAURI_INTERNALS__.invoke) {
+          return window.__TAURI_INTERNALS__.invoke(cmd, args);
+        }
+        throw new Error("Tauri API không khả dụng");
+      }
+
+      function basename(p) {
+        const s = String(p || "");
+        const i = Math.max(s.lastIndexOf("/"), s.lastIndexOf("\\"));
+        return i >= 0 ? s.slice(i + 1) : s;
+      }
+
+      // R2-3: freeze membership of the current batch; items enqueued mid-batch stay wait for next Start.
+      let activeBatchPaths = null; // Set<string> | null
+      // NEW-1 / CR-2: snapshot options MỘT LẦN khi Start — retry trong batch không đọc controls live.
+      let activeBatchOptions = null; // object | null
+
+      function enqueuePaths(paths) {
+        if (!paths || !paths.length) return;
+        paths.forEach((p) => {
+          if (!p) return;
+          if (queue.some((q) => q.path === p)) return; // dedupe by path string
+          queue.push({ path: p, name: basename(p), status: "wait", jobId: null, options: null, error: null });
+        });
+        selectedLocalPath = paths[paths.length - 1];
+        if (selectedLocalPath) {
+          fileNameEl.hidden = false;
+          fileNameEl.textContent = basename(selectedLocalPath) + (paths.length > 1 ? " (+hàng đợi)" : "");
+        }
+        renderQueue();
+      }
+
+      function resetQueueItemForRetry(item) {
+        item.status = "wait";
+        item.error = null;
+        item.jobId = null;
+        item.retry409 = 0; // retry thủ công được cấp lại ngân sách 409 (finding #6)
+        // CR-2 / NEW-1: trong batch đang chạy — GIỮ options snapshot của batch, không đọc controls live
+        // (tránh file retry dùng model/settings khác phần còn lại của batch).
+        if (queueRunning) {
+          item.options = activeBatchOptions || item.options;
+          // Fallback an toàn nếu snapshot mất (không nên xảy ra): giữ options cũ đã có trên item.
+          // Không gọi snapshotOptions() khi queueRunning.
+        } else {
+          // Ngoài batch: snapshot mới hợp lệ cho lần Start kế tiếp.
+          item.options = snapshotOptions();
+        }
+      }
+
+      /** Chuỗi hóa body.detail FastAPI: string | array validation | object. */
+      function formatDetail(detail) {
+        if (detail == null || detail === "") return "";
+        if (typeof detail === "string") return detail;
+        if (Array.isArray(detail)) {
+          return detail
+            .map((d) => {
+              if (typeof d === "string") return d;
+              if (d && typeof d === "object") {
+                if (d.msg) {
+                  const loc = Array.isArray(d.loc) ? d.loc.filter((x) => x !== "body").join(".") : "";
+                  return (loc ? loc + ": " : "") + d.msg;
+                }
+                try { return JSON.stringify(d); } catch (_) { return String(d); }
+              }
+              return String(d);
+            })
+            .filter(Boolean)
+            .join("; ");
+        }
+        if (typeof detail === "object") {
+          try { return JSON.stringify(detail); } catch (_) { return String(detail); }
+        }
+        return String(detail);
+      }
+
+      function renderQueue() {
+        const list = $("queueList");
+        if (!list) return;
+        list.textContent = "";
+        queue.forEach((item, idx) => {
+          const li = document.createElement("li");
+          li.className = "q-" + item.status;
+          const name = document.createElement("span");
+          name.textContent = item.name;
+          const st = document.createElement("span");
+          st.className = "q-status";
+          const labels = { wait: "chờ", running: "chạy", done: "xong", error: "lỗi" };
+          st.textContent = labels[item.status] || item.status;
+          li.appendChild(name);
+          li.appendChild(st);
+          if (item.status === "error") {
+            const retryBtn = document.createElement("button");
+            retryBtn.type = "button";
+            retryBtn.className = "q-retry";
+            retryBtn.textContent = "Thử lại";
+            retryBtn.title = queueRunning
+              ? "Đưa file lỗi vào lại batch đang chạy (giữ options snapshot của batch)"
+              : "Đưa file lỗi về hàng chờ để chạy batch sau";
+            retryBtn.addEventListener("click", (ev) => {
+              ev.stopPropagation();
+              resetQueueItemForRetry(item);
+              // CR-2: nếu batch đang chạy, cho processQueue nhặt lại item này.
+              if (queueRunning && activeBatchPaths) {
+                activeBatchPaths.add(item.path);
+              }
+              showError("");
+              renderQueue();
+            });
+            li.appendChild(retryBtn);
+          }
+          li.addEventListener("click", async () => {
+            if (item.status === "done" && item.jobId) {
+              currentJobId = item.jobId;
+              try {
+                const r = await fetch("/api/jobs/" + item.jobId);
+                if (r.ok) {
+                  const job = await r.json();
+                  showResults(job);
+                  showNote(job.note);
+                  setProgress(100, job.message || "Hoàn tất!");
+                  progressWrap.classList.add("show");
+                }
+              } catch (e) {
+                showError(String(e.message || e));
+              }
+            } else if (item.status === "error" && item.error) {
+              showError(item.error);
+            }
+          });
+          list.appendChild(li);
+        });
+      }
+
+      function snapshotOptions() {
+        return {
+          model: modelEl.value,
+          language: languageEl.value,
+          diarize: diarizeEl.checked,
+          punctuate: punctuateEl.checked,
+          num_speakers: Number(numSpeakersEl.value) || 0,
+          glossary: glossaryEl.value || "",
+        };
+      }
+
+      async function processQueue(batchPaths) {
+        if (queueRunning) return;
+        queueRunning = true;
+        activeBatchPaths = batchPaths || null;
+        // CR-1: giới hạn retry 409 — không lặp vô hạn làm treo UI (queueRunning kẹt true).
+        // Đếm 409 theo TỪNG file (item.retry409), không dùng biến chung cho cả batch —
+        // nếu không, nhiều file khác nhau mỗi file dính 1 lần 409 thoáng qua có thể cộng
+        // dồn đẩy một file không liên quan sang lỗi sớm (finding #6).
+        const MAX_409_RETRIES = 3;
+        try {
+          while (true) {
+            // Only items frozen into this batch — mid-batch enqueues stay wait for next Start (R2-3).
+            const item = queue.find(
+              (q) =>
+                q.status === "wait" &&
+                (!activeBatchPaths || activeBatchPaths.has(q.path))
+            );
+            if (!item) break;
+            item.status = "running";
+            // Options đã snapshot một lần khi bấm Start — không đọc lại control UI.
+            if (!item.options) {
+              item.status = "error";
+              item.error = "Thiếu options snapshot (bấm Start lại).";
+              renderQueue();
+              continue;
+            }
+            renderQueue();
+            showError("");
+            setRunning(true);
+            setProgress(0, "Đang xếp hàng: " + item.name);
+            progressWrap.classList.add("show");
+            try {
+              const resp = await tauriInvoke("start_local_job", {
+                path: item.path,
+                options: {
+                  model: item.options.model,
+                  language: item.options.language,
+                  diarize: item.options.diarize,
+                  punctuate: item.options.punctuate,
+                  numSpeakers: item.options.num_speakers,
+                  glossary: item.options.glossary,
+                },
+              });
+              const status = resp.status || 0;
+              let body = {};
+              try { body = JSON.parse(resp.body || "{}"); } catch (_) { body = {}; }
+              if (status === 409) {
+                item.retry409 = (item.retry409 || 0) + 1;
+                if (item.retry409 < MAX_409_RETRIES) {
+                  item.status = "wait";
+                  item.error = null;
+                  renderQueue();
+                  setProgress(
+                    null,
+                    "Đã có job đang chạy, chờ thử lại… (" + item.retry409 + "/" + MAX_409_RETRIES + ")"
+                  );
+                  await new Promise((r) => setTimeout(r, 2000));
+                  continue;
+                }
+                // Terminal: dừng batch, clear queueRunning qua finally.
+                item.status = "error";
+                item.error = "Đã có job đang chạy, thử lại sau";
+                renderQueue();
+                showError(item.error);
+                break;
+              }
+              item.retry409 = 0;
+              if (status !== 200 || !body.job_id) {
+                item.status = "error";
+                item.error = formatDetail(body.detail) || resp.body || ("HTTP " + status);
+                renderQueue();
+                showError(String(item.error));
+                continue;
+              }
+              item.jobId = body.job_id;
+              currentJobId = body.job_id;
+              // Poll until terminal (CR-7: dung sai mạng giống pollJob)
+              await new Promise((resolve) => {
+                let tickFailCount = 0;
+                const tick = async () => {
+                  try {
+                    const r = await fetch("/api/jobs/" + item.jobId);
+                    if (!r.ok) throw new Error("HTTP " + r.status);
+                    tickFailCount = 0;
+                    const job = await r.json();
+                    setProgress(job.percent, job.message || "");
+                    showNote(job.note);
+                    if (job.status === "running") {
+                      setTimeout(tick, 1200);
+                      return;
+                    }
+                    if (job.status === "error") {
+                      item.status = "error";
+                      item.error = job.message || "Lỗi";
+                      showError(item.error);
+                      if (job.result && job.result.sentences && job.result.sentences.length) {
+                        showResults(job);
+                      }
+                    } else if (job.status === "done") {
+                      item.status = "done";
+                      setProgress(100, job.message || "Hoàn tất!");
+                      showResults(job);
+                    }
+                    renderQueue();
+                    resolve();
+                  } catch (e) {
+                    tickFailCount += 1;
+                    const msg = String(e.message || e);
+                    if (
+                      tickFailCount < 5 &&
+                      (msg.includes("Failed to fetch") ||
+                        msg.includes("NetworkError") ||
+                        msg.includes("fetch"))
+                    ) {
+                      setProgress(
+                        null,
+                        "Mất kết nối tạm thời, đang thử lại… (" + tickFailCount + "/5)"
+                      );
+                      setTimeout(tick, 1200);
+                      return;
+                    }
+                    item.status = "error";
+                    item.error = msg;
+                    renderQueue();
+                    showError(item.error);
+                    resolve();
+                  }
+                };
+                tick();
+              });
+            } catch (e) {
+              item.status = "error";
+              item.error = String(e.message || e);
+              renderQueue();
+              showError(item.error);
+            }
+          }
+        } finally {
+          queueRunning = false;
+          activeBatchPaths = null;
+          activeBatchOptions = null;
+          setRunning(false);
+        }
+      }
+
       function showError(msg) {
         errorBox.textContent = msg || "";
         errorBox.classList.toggle("show", !!msg);
@@ -450,47 +778,72 @@
         }
       }
 
-      dropZone.addEventListener("click", () => fileInput.click());
+      dropZone.addEventListener("click", async () => {
+        if (isDesktop) {
+          try {
+            const paths = await tauriInvoke("pick_local_files", {});
+            enqueuePaths(paths || []);
+          } catch (e) {
+            showError("Không mở được hộp thoại chọn file: " + (e.message || e));
+          }
+          return;
+        }
+        fileInput.click();
+      });
       dropZone.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          fileInput.click();
+          dropZone.click();
         }
       });
       fileInput.addEventListener("change", () => {
         setFile(fileInput.files && fileInput.files[0] ? fileInput.files[0] : null);
       });
-      ["dragenter", "dragover"].forEach((ev) => {
-        dropZone.addEventListener(ev, (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          dropZone.classList.add("dragover");
+      if (!isDesktop) {
+        ["dragenter", "dragover"].forEach((ev) => {
+          dropZone.addEventListener(ev, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.add("dragover");
+          });
         });
-      });
-      ["dragleave", "drop"].forEach((ev) => {
-        dropZone.addEventListener(ev, (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          dropZone.classList.remove("dragover");
+        ["dragleave", "drop"].forEach((ev) => {
+          dropZone.addEventListener(ev, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            dropZone.classList.remove("dragover");
+          });
         });
-      });
-      dropZone.addEventListener("drop", (e) => {
-        const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-        if (f) {
-          setFile(f);
+        dropZone.addEventListener("drop", (e) => {
+          const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+          if (f) {
+            setFile(f);
+            try {
+              const dt = new DataTransfer();
+              dt.items.add(f);
+              fileInput.files = dt.files;
+            } catch (_) { /* ignore if DataTransfer unsupported */ }
+          }
+        });
+      } else {
+        // Native drag-drop: Rust emits "native-files"
+        const listen = async () => {
           try {
-            const dt = new DataTransfer();
-            dt.items.add(f);
-            fileInput.files = dt.files;
-          } catch (_) { /* ignore if DataTransfer unsupported */ }
-        }
-      });
+            if (window.__TAURI__ && window.__TAURI__.event && window.__TAURI__.event.listen) {
+              await window.__TAURI__.event.listen("native-files", (ev) => {
+                enqueuePaths(ev.payload || []);
+              });
+            }
+          } catch (_) { /* ignore */ }
+        };
+        listen();
+      }
 
       async function loadMeta() {
         const r = await fetch("/api/meta");
         if (!r.ok) throw new Error("Không tải được /api/meta");
         const data = await r.json();
-        modelEl.innerHTML = "";
+        modelEl.replaceChildren();
         (data.models || []).forEach((m) => {
           const opt = document.createElement("option");
           opt.value = m.key;
@@ -528,7 +881,7 @@
 
       function renderPreview() {
         const list = sentences.slice(0, 300);
-        previewBody.innerHTML = "";
+        previewBody.replaceChildren();
         previewEmpty.hidden = list.length > 0;
         list.forEach((s) => {
           const tr = document.createElement("tr");
@@ -573,7 +926,7 @@
           }
         });
         ids.sort((a, b) => Number(a) - Number(b));
-        speakerNamesEl.innerHTML = "";
+        speakerNamesEl.replaceChildren();
         if (!ids.length) {
           $("speakerSection").hidden = true;
           return;
@@ -678,6 +1031,40 @@
         sentences = [];
         names = {};
         pollFailCount = 0;
+
+        // Desktop: queue paths (picker/drop) — sequential local jobs
+        if (isDesktop) {
+          if (!queue.length && selectedLocalPath) {
+            enqueuePaths([selectedLocalPath]);
+          }
+          // Retry path: Start resets error items back to wait so they can re-run.
+          queue.forEach((q) => {
+            if (q.status === "error") resetQueueItemForRetry(q);
+          });
+          if (!queue.some((q) => q.status === "wait" || q.status === "running")) {
+            showError("Vui lòng chọn file audio hoặc video trước (File > Mở… hoặc kéo thả).");
+            return;
+          }
+          // Snapshot options + freeze batch membership MỘT LẦN (R2-3 / NEW-1).
+          // Items added after this stay wait with options=null for the next Start.
+          // Retry trong batch phải dùng activeBatchOptions — không đọc controls live.
+          if (queueRunning) {
+            showError("Đang xử lý hàng đợi. Vui lòng đợi xong hoặc thử lại file lỗi trong batch.");
+            return;
+          }
+          const opts = snapshotOptions();
+          activeBatchOptions = opts;
+          const batchPaths = new Set();
+          queue.forEach((q) => {
+            if (q.status === "wait") {
+              q.options = opts;
+              batchPaths.add(q.path);
+            }
+          });
+          processQueue(batchPaths);
+          return;
+        }
+
         if (!selectedFile) {
           showError("Vui lòng chọn file audio hoặc video trước.");
           return;
@@ -703,7 +1090,8 @@
             let detail = "Đang có job khác chạy. Vui lòng đợi xong rồi thử lại.";
             try {
               const j = await r.json();
-              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+              const d = formatDetail(j.detail);
+              if (d) detail = d;
             } catch (_) {}
             showError(detail);
             setRunning(false);
@@ -713,7 +1101,8 @@
             let detail = "Không tạo được job (HTTP " + r.status + ")";
             try {
               const j = await r.json();
-              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+              const d = formatDetail(j.detail);
+              if (d) detail = d;
             } catch (_) {}
             showError(detail);
             setRunning(false);
@@ -744,7 +1133,8 @@
             let detail = "Xuất file thất bại (HTTP " + r.status + ")";
             try {
               const j = await r.json();
-              if (j.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+              const d = formatDetail(j.detail);
+              if (d) detail = d;
             } catch (_) {}
             showError(detail);
             return;

@@ -1,6 +1,8 @@
 """Xử lý audio/video bằng ffmpeg: convert video sang audio, chuẩn hóa về WAV 16kHz mono."""
+import os
 import shutil
 import subprocess
+import sys
 import wave
 from pathlib import Path
 
@@ -8,8 +10,29 @@ AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".aac", ".flac", ".ogg", ".wma", ".opus"}
 VIDEO_EXTS = {".mov", ".mp4", ".mkv", ".avi", ".webm", ".m4v"}
 
 
+def _bundled_ffmpeg_dir() -> Path | None:
+    """Thư mục ffmpeg/ cạnh binary khi chạy PyInstaller (sys.frozen + _MEIPASS).
+
+    Chỉ trả về khi CẢ ffmpeg và ffprobe đều tồn tại — thiếu ffprobe sẽ làm
+    duration_seconds() OSError → None → bỏ qua guard file dài (CR-3).
+    """
+    if not getattr(sys, "frozen", False):
+        return None
+    base = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    d = base / "ffmpeg"
+    ffmpeg_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+    ffprobe_name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+    if (d / ffmpeg_name).is_file() and (d / ffprobe_name).is_file():
+        return d
+    return None
+
+
 def ffmpeg_path() -> str:
-    """Ưu tiên ffmpeg có sẵn trên máy; nếu không có thì dùng bản static-ffmpeg tải qua pip."""
+    """Ưu tiên ffmpeg bundle (frozen) → system PATH → static-ffmpeg package."""
+    bundled = _bundled_ffmpeg_dir()
+    if bundled is not None:
+        name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+        return str(bundled / name)
     found = shutil.which("ffmpeg")
     if found:
         return found
@@ -20,6 +43,10 @@ def ffmpeg_path() -> str:
 
 def ffprobe_path() -> str:
     """Như ffmpeg_path nhưng cho ffprobe (static-ffmpeg trả về cặp (ffmpeg, ffprobe))."""
+    bundled = _bundled_ffmpeg_dir()
+    if bundled is not None:
+        name = "ffprobe.exe" if os.name == "nt" else "ffprobe"
+        return str(bundled / name)
     found = shutil.which("ffprobe")
     if found:
         return found

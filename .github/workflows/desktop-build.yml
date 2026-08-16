@@ -1,0 +1,264 @@
+name: desktop-build
+
+on:
+  push:
+    branches: [main, "feat/desktop-tauri", "1devtool/**"]
+    paths:
+      - "app/**"
+      - "desktop/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/desktop-build.yml"
+  pull_request:
+    paths:
+      - "app/**"
+      - "desktop/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/desktop-build.yml"
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: linux-x64 (ubuntu-22.04)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: System deps (WebKitGTK etc.)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev build-essential curl wget file \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev \
+            xvfb xdotool espeak-ng
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri CLI 2.11.4
+        run: cargo install tauri-cli --version 2.11.4 --locked
+      - name: Python tests
+        run: |
+          uv sync --group desktop --group dev
+          uv run ruff check .
+          uv run pytest tests/ -v
+      - name: Cargo unit tests (lib, no display required)
+        run: |
+          cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
+      - name: Build linux
+        run: bash desktop/scripts/build-linux.sh
+      - name: Require sidecar-manifest.json
+        run: |
+          test -f desktop/pyinstaller/dist/sidecar-manifest.json
+          test -d desktop/pyinstaller/dist/ffmpeg-notices
+          test -f desktop/pyinstaller/dist/ffmpeg-notices/SOURCE_OFFER.txt
+          python3 - <<'PY'
+          import importlib.util
+          import json
+          from pathlib import Path
+
+          # Single source of truth: desktop/scripts/ffmpeg_license_audit.py
+          audit_path = Path("desktop/scripts/ffmpeg_license_audit.py")
+          spec = importlib.util.spec_from_file_location("ffmpeg_license_audit", audit_path)
+          assert spec and spec.loader
+          audit = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(audit)
+          allowed = audit.ALLOWED_LICENSE_KINDS
+
+          m = json.load(open("desktop/pyinstaller/dist/sidecar-manifest.json"))
+          ff = m.get("ffmpeg") or {}
+          lic = ff.get("ffmpeg_license")
+          assert lic in allowed, (
+              f"ffmpeg_license={lic!r} not in ALLOWED_LICENSE_KINDS "
+              f"{sorted(allowed)}; reject NONFREE and unknown labels"
+          )
+          assert ff.get("ffmpeg_version_line"), "missing version"
+          assert ff.get("ffmpeg_configuration"), "missing configuration"
+          assert ff.get("ffmpeg_sha256"), "missing sha"
+          assert ff.get("download_url"), "missing download_url provenance"
+          assert ff.get("resolver_package_version"), "missing resolver package version"
+          assert ff.get("license_artifacts"), "missing license_artifacts gate"
+          assert m.get("onefile"), "onefile entry required"
+          print("manifest OK", lic, ff.get("ffmpeg_version_line")[:80])
+          print("download_url", ff.get("download_url"))
+          PY
+      - name: Sidecar e2e online + offline (shared XDG_DATA_HOME)
+        run: |
+          set -euo pipefail
+          DATA_HOME="$(mktemp -d /tmp/vitranscript-e2e-data-XXXX)"
+          SIDECAR="desktop/pyinstaller/dist/vitranscript-sidecar"
+          echo "DATA_HOME=${DATA_HOME}"
+          # Online pass — populates model cache under DATA_HOME (R2-4 shared cache).
+          uv run python scripts/e2e_sidecar_linux.py \
+            --sidecar "${SIDECAR}" \
+            --data-home "${DATA_HOME}"
+          # Offline pass MUST reuse the same cache. Isolation failure is a hard fail.
+          if command -v unshare >/dev/null 2>&1 && unshare -n true 2>/dev/null; then
+            unshare -n -- uv run python scripts/e2e_sidecar_linux.py \
+              --sidecar "${SIDECAR}" \
+              --data-home "${DATA_HOME}"
+          elif command -v docker >/dev/null 2>&1; then
+            # Prebuild image (networked). Offline container never apt-gets.
+            IMAGE_TAG="vitranscript-e2e-runtime:ci"
+            docker build -t "${IMAGE_TAG}" \
+              -f scripts/docker/e2e-runtime.Dockerfile \
+              scripts/docker
+            WAV="$(mktemp /tmp/vitranscript-e2e-XXXX.wav)"
+            bash scripts/gen_test_audio_linux.sh "${WAV}"
+            # Absolute paths for docker -v; execute bit on host before :ro mount.
+            SIDECAR_ABS="$(cd "$(dirname "${SIDECAR}")" && pwd)/$(basename "${SIDECAR}")"
+            if [[ ! -x "${SIDECAR_ABS}" ]]; then
+              chmod +x "${SIDECAR_ABS}"
+            fi
+            test -x "${SIDECAR_ABS}"
+            WAV_ABS="$(cd "$(dirname "${WAV}")" && pwd)/$(basename "${WAV}")"
+            docker run --rm --network none \
+              -v "${DATA_HOME}:/data" \
+              -v "${SIDECAR_ABS}:/sidecar:ro" \
+              -v "$(pwd)/scripts/e2e_sidecar_linux.py:/e2e.py:ro" \
+              -v "${WAV_ABS}:/sample.wav:ro" \
+              -e XDG_DATA_HOME=/data \
+              -e VITRANSCRIPT_ENABLE_TEST_MODEL=1 \
+              "${IMAGE_TAG}" \
+              bash -c 'set -euo pipefail; python3 /e2e.py --sidecar /sidecar --wav /sample.wav --data-home /data'
+          else
+            echo "ERROR: cannot isolate network (need unshare -n or docker --network none)" >&2
+            exit 1
+          fi
+      - name: Xvfb Tauri smoke (best-effort on artifact)
+        run: |
+          set -euo pipefail
+          BIN=""
+          if ls desktop/src-tauri/target/release/bundle/appimage/*.AppImage >/dev/null 2>&1; then
+            BIN="$(ls desktop/src-tauri/target/release/bundle/appimage/*.AppImage | head -1)"
+          elif [[ -x desktop/src-tauri/target/release/vitranscript ]]; then
+            BIN="desktop/src-tauri/target/release/vitranscript"
+          fi
+          if [[ -z "${BIN}" ]]; then
+            echo "ERROR: no AppImage or release binary for smoke" >&2
+            exit 1
+          fi
+          bash scripts/smoke_desktop_linux.sh "${BIN}"
+      - name: Clean Ubuntu 22.04 runtime gate (docker, full job)
+        run: |
+          set -euo pipefail
+          BIN="desktop/pyinstaller/dist/vitranscript-sidecar"
+          test -x "${BIN}"
+          # Prefer full clean-container gate; fail if docker missing (R2-5).
+          if ! command -v docker >/dev/null 2>&1; then
+            echo "ERROR: docker required for clean Ubuntu 22.04 runtime gate" >&2
+            exit 1
+          fi
+          bash scripts/e2e_clean_ubuntu_docker.sh "${BIN}"
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitranscript-linux-x64
+          path: |
+            desktop/src-tauri/target/release/bundle/**
+            desktop/pyinstaller/dist/sidecar-manifest.json
+            desktop/pyinstaller/dist/ffmpeg-notices/**
+          if-no-files-found: error
+
+  macos-arm64:
+    name: macos-arm64 (macos-15)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri CLI 2.11.4
+        run: cargo install tauri-cli --version 2.11.4 --locked
+      - name: Cargo unit tests (lib)
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
+      - name: Build macOS (native)
+        run: bash desktop/scripts/build-macos.sh
+      - name: Require sidecar-manifest.json
+        run: test -f desktop/pyinstaller/dist/sidecar-manifest.json
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitranscript-macos-arm64
+          path: |
+            desktop/src-tauri/target/release/bundle/**
+            desktop/pyinstaller/dist/sidecar-manifest.json
+          if-no-files-found: error
+
+  macos-intel:
+    name: macos-intel (macos-15-intel)
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri CLI 2.11.4
+        run: cargo install tauri-cli --version 2.11.4 --locked
+      - name: Cargo unit tests (lib)
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
+      - name: Build macOS Intel (native)
+        run: bash desktop/scripts/build-macos.sh
+      - name: Require sidecar-manifest.json
+        run: test -f desktop/pyinstaller/dist/sidecar-manifest.json
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitranscript-macos-x64
+          path: |
+            desktop/src-tauri/target/release/bundle/**
+            desktop/pyinstaller/dist/sidecar-manifest.json
+          if-no-files-found: error
+
+  windows:
+    name: windows-x64 (windows-2022)
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri CLI 2.11.4
+        run: cargo install tauri-cli --version 2.11.4 --locked
+      - name: Cargo unit tests (lib)
+        run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --lib
+      - name: Build Windows
+        shell: pwsh
+        run: .\desktop\scripts\build-windows.ps1
+      - name: Require sidecar-manifest.json
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "desktop\pyinstaller\dist\sidecar-manifest.json")) {
+            throw "missing sidecar-manifest.json"
+          }
+          # Canonical labels from ffmpeg_license_audit.ALLOWED_LICENSE_KINDS (reject NONFREE).
+          # Join-as-script keeps YAML indentation valid (no bare column-0 lines).
+          $py = @(
+            'import importlib.util, json'
+            'from pathlib import Path'
+            'audit_path = Path("desktop/scripts/ffmpeg_license_audit.py")'
+            'spec = importlib.util.spec_from_file_location("ffmpeg_license_audit", audit_path)'
+            'assert spec and spec.loader'
+            'audit = importlib.util.module_from_spec(spec)'
+            'spec.loader.exec_module(audit)'
+            'allowed = audit.ALLOWED_LICENSE_KINDS'
+            'm = json.loads(Path("desktop/pyinstaller/dist/sidecar-manifest.json").read_text(encoding="utf-8"))'
+            'ff = m.get("ffmpeg") or {}'
+            'lic = ff.get("ffmpeg_license")'
+            'assert lic in allowed, f"ffmpeg_license={lic!r} not in {sorted(allowed)}"'
+            'assert ff.get("ffmpeg_version_line"), "missing ffmpeg_version_line"'
+            'assert ff.get("ffmpeg_configuration"), "missing ffmpeg_configuration"'
+            'print(f"manifest OK license={lic}")'
+          ) -join "`n"
+          $py | python -
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitranscript-windows-x64
+          path: |
+            desktop/src-tauri/target/release/bundle/**
+            desktop/pyinstaller/dist/sidecar-manifest.json
+          if-no-files-found: error

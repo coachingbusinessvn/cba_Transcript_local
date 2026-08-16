@@ -19,3 +19,19 @@ eval/punctuation_reference.txt
 
 # State tam cua superpowers skill (khong phai san pham)
 .superpowers/
+
+# Desktop / PyInstaller / Tauri build artifacts (do not commit)
+desktop/pyinstaller/build/
+desktop/pyinstaller/dist/
+desktop/pyinstaller/ffmpeg-notices/
+desktop/pyinstaller/_ffmpeg.path
+desktop/pyinstaller/_ffprobe.path
+desktop/pyinstaller/_ffmpeg_resolve.json
+desktop/src-tauri/target/
+desktop/src-tauri/binaries/vitranscript-sidecar-*
+desktop/src-tauri/gen/
+*.AppImage
+/tmp/
+
+# 1DevTool orchestration local state (per-machine, not project code)
+.1devtool/

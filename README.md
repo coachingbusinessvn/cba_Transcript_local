@@ -10,6 +10,23 @@ Lần đầu dùng model cần mạng để tải model về máy; sau đó có 
 
 ---
 
+## 🖥️ Bản Desktop Native (Tauri + Python Sidecar)
+
+ViTranscript hiện đã hỗ trợ bản đóng gói **Desktop Native Application** (sử dụng vỏ Tauri v2 Rust + Python Sidecar đóng gói PyInstaller):
+- **Cửa sổ ứng dụng native** độc lập, kéo-thả file, hộp thoại chọn file native, hàng chờ (queue) xử lý nhiều file.
+- Không cần mở trình duyệt web ngoài, không hiện cửa sổ dòng lệnh Terminal.
+- Tự động tắt dịch vụ chạy ngầm khi đóng cửa sổ app (không chạy ẩn khay hệ thống).
+
+📖 **Tài liệu Người dùng Desktop:** [`docs/15-desktop-user.md`](docs/15-desktop-user.md) (Hướng dẫn cài đặt `.AppImage` / `.deb` trên Ubuntu, cách vượt Gatekeeper/SmartScreen, cách dùng và gỡ cài đặt).  
+🛠️ **Tài liệu Developer Desktop:** [`docs/14-desktop-dev.md`](docs/14-desktop-dev.md) (Kiến trúc Tauri shell ↔ Loopback HTTP ↔ Python sidecar, hợp đồng CLI/env/API, PyInstaller spec, ffmpeg audit, kịch bản build & CI).
+
+> **Phân biệt hai bản ứng dụng:**  
+> - **Bản Desktop Native (Tauri):** Gói cài đặt ứng dụng độc lập (`.AppImage`, `.deb`, `.dmg`, `.exe`), mở trực tiếp cửa sổ app không cần Python/venv.  
+> - **Bản Server Legacy (Script):** Chạy qua script `run.command` / `run.bat` để tự tải `uv` và mở giao diện trên trình duyệt web (hướng dẫn chi tiết bên dưới).
+
+
+---
+
 ## Cài đặt
 
 ### macOS
@@ -169,4 +186,4 @@ uv run python scripts/smoke_punctuation_model.py  # smoke model pin, lần đầ
 uv run python scripts/eval_punctuation.py         # boundary F1, cần fixture riêng tư
 ```
 
-Tài liệu kỹ thuật: [`docs/01-bai-toan.md`](docs/01-bai-toan.md), [`docs/02-plan.md`](docs/02-plan.md), [`docs/03-tasks.md`](docs/03-tasks.md).
+Tài liệu kỹ thuật: [`docs/01-bai-toan.md`](docs/01-bai-toan.md), [`docs/02-plan.md`](docs/02-plan.md), [`docs/03-tasks.md`](docs/03-tasks.md), [`docs/14-desktop-dev.md`](docs/14-desktop-dev.md), [`docs/15-desktop-user.md`](docs/15-desktop-user.md).

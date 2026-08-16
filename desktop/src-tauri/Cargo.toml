@@ -1,0 +1,59 @@
+[package]
+name = "vitranscript"
+version = "0.1.0"
+description = "ViTranscript desktop shell (Tauri + Python sidecar)"
+authors = ["ViTranscript"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "vitranscript_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "vitranscript"
+path = "src/main.rs"
+required-features = ["gui"]
+
+[features]
+default = ["gui"]
+gui = [
+  "dep:tauri",
+  "dep:tauri-plugin-dialog",
+  "dep:tauri-plugin-opener",
+  "dep:tauri-build",
+  "dep:parking_lot",
+  "dep:ureq",
+  "dep:uuid",
+]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [], optional = true }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+regex = "1"
+thiserror = "2"
+once_cell = "1"
+url = "2"
+# GUI / lifecycle (optional so pure unit tests run without WebKit/dbus)
+tauri = { version = "2", features = [], optional = true }
+tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-opener = { version = "2", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
+ureq = { version = "2", default-features = false, features = ["json"], optional = true }
+parking_lot = { version = "0.12", optional = true }
+
+# Windows Job Object + CreateProcessW lifecycle (always on Windows targets).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_System_JobObjects",
+  "Win32_System_Threading",
+  "Win32_Security",
+  "Win32_System_Pipes",
+] }
+
+[dev-dependencies]
+tempfile = "3"
