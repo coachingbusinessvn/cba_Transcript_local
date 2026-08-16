@@ -474,6 +474,7 @@
         item.status = "wait";
         item.error = null;
         item.jobId = null;
+        item.retry409 = 0; // retry thủ công được cấp lại ngân sách 409 (finding #6)
         // CR-2 / NEW-1: trong batch đang chạy — GIỮ options snapshot của batch, không đọc controls live
         // (tránh file retry dùng model/settings khác phần còn lại của batch).
         if (queueRunning) {
@@ -586,8 +587,10 @@
         queueRunning = true;
         activeBatchPaths = batchPaths || null;
         // CR-1: giới hạn retry 409 — không lặp vô hạn làm treo UI (queueRunning kẹt true).
+        // Đếm 409 theo TỪNG file (item.retry409), không dùng biến chung cho cả batch —
+        // nếu không, nhiều file khác nhau mỗi file dính 1 lần 409 thoáng qua có thể cộng
+        // dồn đẩy một file không liên quan sang lỗi sớm (finding #6).
         const MAX_409_RETRIES = 3;
-        let conflict409Count = 0;
         try {
           while (true) {
             // Only items frozen into this batch — mid-batch enqueues stay wait for next Start (R2-3).
@@ -626,14 +629,14 @@
               let body = {};
               try { body = JSON.parse(resp.body || "{}"); } catch (_) { body = {}; }
               if (status === 409) {
-                conflict409Count += 1;
-                if (conflict409Count < MAX_409_RETRIES) {
+                item.retry409 = (item.retry409 || 0) + 1;
+                if (item.retry409 < MAX_409_RETRIES) {
                   item.status = "wait";
                   item.error = null;
                   renderQueue();
                   setProgress(
                     null,
-                    "Đã có job đang chạy, chờ thử lại… (" + conflict409Count + "/" + MAX_409_RETRIES + ")"
+                    "Đã có job đang chạy, chờ thử lại… (" + item.retry409 + "/" + MAX_409_RETRIES + ")"
                   );
                   await new Promise((r) => setTimeout(r, 2000));
                   continue;
@@ -645,7 +648,7 @@
                 showError(item.error);
                 break;
               }
-              conflict409Count = 0;
+              item.retry409 = 0;
               if (status !== 200 || !body.job_id) {
                 item.status = "error";
                 item.error = formatDetail(body.detail) || resp.body || ("HTTP " + status);

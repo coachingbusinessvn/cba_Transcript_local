@@ -225,11 +225,33 @@ pub fn wait_for_ready_from_drain(
         if now >= deadline {
             return Err(SidecarError::ReadyTimeout);
         }
-        match try_exit()? {
-            Some(code) => {
-                return Err(SidecarError::ExitedBeforeReady(code));
+        if let Some(code) = try_exit()? {
+            // Finding #5: the process exited — but a READY it printed just before
+            // exiting may still be buffered on the drain channel (the drain thread
+            // parses stdout on its own thread, so the exit can be observed first).
+            // Drain remaining events (bounded by the READY deadline) and honor a
+            // late READY before reporting ExitedBeforeReady.
+            loop {
+                let now = Instant::now();
+                if now >= deadline {
+                    return Err(SidecarError::ExitedBeforeReady(code));
+                }
+                let slice = deadline
+                    .saturating_duration_since(now)
+                    .min(Duration::from_millis(100));
+                match rx.recv_timeout(slice) {
+                    Ok(Ok(port)) => {
+                        println!("VITRANSCRIPT_READY http://127.0.0.1:{port}");
+                        let _ = std::io::stdout().flush();
+                        return Ok((port, join));
+                    }
+                    Ok(Err(e)) => return Err(e),
+                    Err(RecvTimeoutError::Timeout) => continue,
+                    Err(RecvTimeoutError::Disconnected) => {
+                        return Err(SidecarError::ExitedBeforeReady(code));
+                    }
+                }
             }
-            None => {}
         }
         let slice = deadline
             .saturating_duration_since(now)
@@ -367,21 +389,37 @@ mod runtime {
             }
         }
 
-        /// Wait up to `wait` for graceful exit, then always clean the process tree.
+        /// Wait up to `wait` for graceful exit; force-kill the tree only if the
+        /// leader is still alive after the grace window.
         ///
-        /// Important (finding #4): do **not** return early just because the leader
-        /// reaped — descendants may still be alive. Always run group/job kill after
-        /// the grace window (or immediately after leader exit so orphans die).
+        /// The caller has already sent the HTTP shutdown, so the leader normally
+        /// exits on its own. Two properties matter here:
+        ///
+        /// - Finding #4: on that graceful path we must NOT run the unconditional
+        ///   SIGTERM → 2s sleep → SIGKILL ladder — it froze the Tauri main thread
+        ///   for ≥2s on every clean window close. So `force_kill_tree` runs only
+        ///   when the leader did not reap within the grace window.
+        /// - Finding #3: `force_kill_tree` signals the *process group* (`kill -pgid`).
+        ///   That is only safe while the leader is un-reaped, because a reaped leader
+        ///   frees its PID and the kernel can recycle the pgid onto an unrelated
+        ///   group. We reach `force_kill_tree` only when every grace-window
+        ///   `try_reap` returned false, i.e. the leader is provably un-reaped, so
+        ///   the group is non-empty and its pgid cannot have been recycled.
         pub fn wait_exit_or_kill(&mut self, wait: Duration) {
             let start = Instant::now();
+            let mut reaped = false;
             while start.elapsed() < wait {
                 if self.try_reap() {
+                    reaped = true;
                     break;
                 }
-                thread::sleep(Duration::from_millis(100));
+                thread::sleep(Duration::from_millis(50));
             }
-            // Always signal group/job — even if leader already exited.
-            self.force_kill_tree();
+            if !reaped {
+                // Leader still alive → un-reaped → pgid reserved → safe to signal.
+                self.force_kill_tree();
+            }
+            // Reap the leader; init/subreaper reaps any reparented descendants.
             let end = Instant::now() + Duration::from_secs(3);
             while Instant::now() < end {
                 if self.try_reap() {
@@ -435,23 +473,15 @@ mod runtime {
 
     impl Drop for SidecarState {
         fn drop(&mut self) {
-            // Drop must never skip tree cleanup (#4). force_kill is idempotent;
-            // even after leader reap we still signal the group/job.
             if !self.cleaned {
+                // Not yet cleaned → leader is un-reaped → pgid reserved → the group
+                // signal inside force_kill_tree is safe.
                 self.force_kill_tree();
-            } else {
-                // Re-signal once more without grace sleep to catch late descendants.
-                #[cfg(unix)]
-                {
-                    if self.pgid > 0 {
-                        unix_kill_pg(self.pgid, 9);
-                    }
-                }
-                #[cfg(windows)]
-                {
-                    self.win.terminate_via_job();
-                }
             }
+            // If already cleaned, wait_exit_or_kill has reaped the leader. Re-signaling
+            // self.pgid now would repeat finding #3's TOCTOU: the reaped leader's PID
+            // may have been recycled onto an unrelated process group. On Windows the
+            // Job Object was already closed. So do not signal again here.
             self.join_stdout_reader();
         }
     }
@@ -528,8 +558,23 @@ mod runtime {
         if let Some(parent) = log_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let log_file = std::fs::File::create(log_path)?;
-        let log_err = log_file.try_clone()?;
+        // Finding #1: the stdout drain thread opens this same file with an *append*
+        // handle (O_APPEND). Handing the child a truncating File::create handle
+        // (offset 0) for stderr would make the two writers clobber each other and
+        // corrupt sidecar.log — the exact surface shown in the startup-error dialog.
+        // Truncate once here for a fresh per-launch log, then give the child an
+        // append handle so every writer appends atomically at EOF (matches Windows).
+        {
+            let _ = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(log_path)?;
+        }
+        let log_err = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(log_path)?;
         let mut cmd = Command::new(binary);
         cmd.arg("--port")
             .arg("0")
@@ -550,7 +595,8 @@ mod runtime {
         }
         let child = cmd.spawn().map_err(|e| SidecarError::Spawn(e.to_string()))?;
         let pgid = child.id() as i32;
-        let _ = log_file;
+        // log_err was moved into the child's stderr via Stdio::from; the parent
+        // keeps no handle so only the child + drain thread (both append) write.
         Ok((child, pgid))
     }
 

@@ -38,7 +38,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 > _Phần này tự động cập nhật khi commit vào main._
 
-**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D6 🟢 (+ CR-1..CR-10 + residual RESIDUAL-1 HIGH-1/2 + RESIDUAL-2 + NEW-1/2 + CI license 4-label), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
+**Tiến độ:** 17/21 core 🟢 | 3 core 🔵 | Desktop D0–D6 🟢 (+ CR-1..CR-10 + residual RESIDUAL-1 HIGH-1/2 + RESIDUAL-2 + NEW-1/2 + CI license 4-label + audit AUDIT-1..6), sidecar U22 e2e PASS; Xvfb/AppImage full 🔵
 
 **Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `server_runtime.py`, `transcribe.py`
 
@@ -64,10 +64,10 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
 | 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
-| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | reparse fail-closed + token compare_digest |
+| D0 | Desktop backend contract (READY, /healthz, /api/jobs/local, shutdown) | 🟢 | reparse fail-closed + token compare_digest; AUDIT-2 SO_REUSEADDR POSIX-only (Windows occupied/hijack detection) |
 | D1 | PyInstaller sidecar | 🟢 | RESIDUAL-1: fail-closed source + git-rev pin; RESIDUAL-2 LGPLv3+GPLv3; NONFREE-first; CI ALLOWED_LICENSE_KINDS = GPLv2/GPLv3/LGPLv2.1/LGPLv3 |
-| D2 | Tauri shell + lifecycle | 🟢 | CR-5 WaitForSingleObject + NEW-2 WAIT_FAILED log; CR-9 Lazy READY; CR-10 url::Url; cargo 15 |
-| D3 | Native file bridge + queue UI | 🟢 | menu Open = pick_and_grant_paths (CR-8); queue CR-1/2/7 + activeBatchOptions |
+| D2 | Tauri shell + lifecycle | 🟢 | CR-5 WaitForSingleObject + NEW-2 WAIT_FAILED log; CR-9 Lazy READY; CR-10 url::Url; cargo 15; AUDIT-1 stderr append (log không clobber), AUDIT-3 pgid kill chỉ khi leader chưa reap (no TOCTOU), AUDIT-4 no 2s stall graceful, AUDIT-5 drain READY trước ExitedBeforeReady |
+| D3 | Native file bridge + queue UI | 🟢 | menu Open = pick_and_grant_paths (CR-8); queue CR-1/2/7 + activeBatchOptions; AUDIT-6 retry409 đếm theo từng file |
 | D4 | Icon + build scripts + CI | 🟢 | offline fail closed; CI shared data-home + docker offline; abs path mount; tauri CLI cwd |
 | D5 | E2E Ubuntu scripts | 🟢 | sidecar U22 online+offline PASS; E2E-1..4 script fixes (abs mount, no chmod :ro, Xvfb DISPLAY, group-kill test) |
 | D6 | Docs desktop dev + user (`docs/14-desktop-dev.md`, `docs/15-desktop-user.md`) | 🟢 | Tài liệu dev (kiến trúc, HĐ, PyInstaller, CI) + user (cài đặt, Gatekeeper, cách dùng) |

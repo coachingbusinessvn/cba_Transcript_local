@@ -91,10 +91,12 @@ def bind_server_socket(port: int = 0) -> tuple[socket.socket, int]:
     for p in candidates:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            # Không SO_REUSEADDR trên Windows cho fixed port occupied detection
-            # nhưng trên Linux REUSEADDR giúp restart nhanh; fixed occupied vẫn fail
-            # nếu process khác đang LISTEN.
-            if port == 0:
+            # SO_REUSEADDR chỉ trên POSIX: giúp restart nhanh sau khi socket cũ ở
+            # TIME_WAIT. KHÔNG set trên Windows — ở đó REUSEADDR có ngữ nghĩa "steal":
+            # bind() thành công ngay cả khi process khác đang LISTEN đúng port đó, phá
+            # occupied detection của dynamic scan (2 server cùng 127.0.0.1:port) và cho
+            # phép process cục bộ chiếm trước để hijack port sidecar.
+            if port == 0 and os.name != "nt":
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind(("127.0.0.1", p))
             sock.listen(2048)
