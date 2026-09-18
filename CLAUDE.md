@@ -69,7 +69,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [x] GC thư mục jobs (disk) — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày; jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; không đụng job `running`
+- [x] GC thư mục jobs (disk) — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày (kể cả `running` cũ do crash); jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; luật dung lượng không đụng job `running`
 <!-- auto-update: end -->
 
 
@@ -129,7 +129,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [x] GC thư mục jobs (disk) — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày; jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; không đụng job `running`
+- [x] GC thư mục jobs (disk) — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày (kể cả `running` cũ do crash); jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; luật dung lượng không đụng job `running`
 <!-- auto-update: end -->` trong `CLAUDE.md`
 2. Sửa block `<!-- status-block: start --> … <!-- status-block: end -->` trong `AGENTS.md`
 3. Commit cả 2 file cùng với code thay đổi trong **cùng 1 commit**

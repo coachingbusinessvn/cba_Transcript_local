@@ -119,7 +119,7 @@ docs/
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [x] GC thư mục jobs (disk) — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày; jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; không đụng job `running`
+- [x] GC thư mục jobs (disk) — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày (kể cả `running` cũ do crash); jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; luật dung lượng không đụng job `running`
 <!-- status-block: end -->
 
 ---
@@ -138,7 +138,7 @@ docs/
 | `export.py` | `to_docx/xlsx/srt/txt()`, `speaker_name()` | Output formats |
 | `pipeline.py` | `run()` | Master pipeline, progress callback |
 | `checkpoint.py` | save/restore partial results | Long-file resilience |
-| `janitor.py` | `cleanup_jobs_dir()` | Auto-GC `jobs/` at startup (>30d old, >20 GB cap, keep 10 newest, never `running`) |
+| `janitor.py` | `cleanup_jobs_dir()` | Auto-GC `jobs/` at startup (age >30d incl. stale `running`; size >20 GB never removes `running`, keeps 10 newest) |
 | `server.py` | FastAPI app | REST API + static file serving |
 
 ---

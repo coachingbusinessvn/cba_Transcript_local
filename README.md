@@ -129,7 +129,7 @@ App lưu model đã tải, settings, glossary và job tạm tại:
 
 Xóa **cả thư mục** trên = reset app (sẽ tải lại model lần sau).
 
-**Tự động dọn job cũ:** mỗi lần khởi động, app tự xóa các job trong `jobs/` có kết quả cũ hơn **30 ngày**; nếu tổng `jobs/` vượt **20 GB** thì xóa tiếp job cũ nhất trước nhưng luôn giữ lại **10 job gần nhất**. Job đang chạy không bao giờ bị xóa. Không cần dọn tay — nhưng vẫn có thể xóa thủ công `jobs/` nếu muốn giải phóng chỗ ngay.
+**Tự động dọn job cũ:** mỗi lần khởi động, app tự xóa các job trong `jobs/` có kết quả cũ hơn **30 ngày**; nếu tổng `jobs/` vượt **20 GB** thì xóa tiếp job cũ nhất trước nhưng luôn giữ lại **10 job gần nhất**. Job đang chạy mới được giữ lại; job `running` cũ hơn 30 ngày (thường là do app bị tắt/crash giữa chừng) vẫn bị xóa theo tuổi, còn luật giới hạn 20 GB không bao giờ xóa job đang chạy. Không cần dọn tay — nhưng vẫn có thể xóa thủ công `jobs/` nếu muốn giải phóng chỗ ngay.
 
 ### Cổng (port) bị bận
 
