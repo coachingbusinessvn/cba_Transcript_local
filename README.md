@@ -111,7 +111,7 @@ Glossary được lưu trên máy và dùng lại lần sau.
 - **Phân biệt người nói** phụ thuộc chất lượng ghi âm: mic chung, giọng chồng lấn, ồn nền sẽ giảm độ chính xác.
 - **Lần đầu** dùng mỗi model cần **mạng** để tải về (vài trăm MB đến ~3 GB). Lần sau **offline** được.
 - Model **lớn** tốn **RAM** và thời gian hơn; máy chỉ vài GB RAM nên dùng `phowhisper-small` hoặc `whisper-small`.
-- v1 **không** chạy song song nhiều file; xóa dữ liệu job cũ bằng cách dọn thư mục data (mục Troubleshooting).
+- v1 **không** chạy song song nhiều file; app tự dọn job cũ mỗi lần khởi động (xem mục Thư mục dữ liệu).
 
 ---
 
@@ -128,6 +128,8 @@ App lưu model đã tải, settings, glossary và job tạm tại:
 | **Linux** | `~/.local/share/ViTranscript` (hoặc `$XDG_DATA_HOME/ViTranscript`) |
 
 Xóa **cả thư mục** trên = reset app (sẽ tải lại model lần sau).
+
+**Tự động dọn job cũ:** mỗi lần khởi động, app tự xóa các job trong `jobs/` có kết quả cũ hơn **30 ngày**; nếu tổng `jobs/` vượt **20 GB** thì xóa tiếp job cũ nhất trước nhưng luôn giữ lại **10 job gần nhất**. Job đang chạy không bao giờ bị xóa. Không cần dọn tay — nhưng vẫn có thể xóa thủ công `jobs/` nếu muốn giải phóng chỗ ngay.
 
 ### Cổng (port) bị bận
 
@@ -151,7 +153,7 @@ App ưu tiên `ffmpeg` có sẵn trên PATH; nếu thiếu sẽ **tự dùng sta
 
 - Xem thông báo trên UI.
 - Thử model nhỏ hơn hoặc file ngắn hơn.
-- Xóa thư mục `jobs` trong thư mục data (bảng trên) nếu disk đầy.
+- App đã tự dọn `jobs/` mỗi lần khởi động (>30 ngày hoặc >20 GB, giữ 10 job mới nhất); nếu vẫn cần thêm chỗ, xóa tay thư mục `jobs` trong thư mục data (bảng trên).
 
 ---
 

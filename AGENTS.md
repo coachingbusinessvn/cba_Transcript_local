@@ -90,7 +90,7 @@ docs/
 **Progress:** 17/21 tasks done 🟢 | 3 in-progress 🔵 | 1 not started ⚪
 
 **App modules in `app/`:**
-`checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
+`checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `janitor.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
 
 **Task table:**
 
@@ -105,7 +105,7 @@ docs/
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 75 test) | 🟢 | 74 passed, 1 deselected |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py`, 83 test) | 🟢 | 82 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), chặn POST cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
@@ -119,7 +119,7 @@ docs/
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
+- [x] GC thư mục jobs (disk) — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày; jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; không đụng job `running`
 <!-- status-block: end -->
 
 ---
@@ -138,6 +138,7 @@ docs/
 | `export.py` | `to_docx/xlsx/srt/txt()`, `speaker_name()` | Output formats |
 | `pipeline.py` | `run()` | Master pipeline, progress callback |
 | `checkpoint.py` | save/restore partial results | Long-file resilience |
+| `janitor.py` | `cleanup_jobs_dir()` | Auto-GC `jobs/` at startup (>30d old, >20 GB cap, keep 10 newest, never `running`) |
 | `server.py` | FastAPI app | REST API + static file serving |
 
 ---

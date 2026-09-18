@@ -515,7 +515,22 @@ def _free_port(start: int = 8756) -> int:
 
 
 def main() -> None:
+    from . import janitor  # chỉ cần lúc khởi động — import cục bộ
+
     port = _free_port()
+    # GC thư mục jobs/ một lần trước khi nhận request: xóa job quá 30 ngày,
+    # cap tổng 20 GB (xóa cũ nhất trước, giữ 10 job mới nhất). Bọc try/except —
+    # GC lỗi không được chặn server chạy.
+    try:
+        gc = janitor.cleanup_jobs_dir(config.jobs_dir())
+        log.info(
+            "GC jobs/: xóa %d job, giữ %d, giải phóng %.1f MB",
+            gc["removed"],
+            gc["kept"],
+            gc["freed_bytes"] / (1 << 20),
+        )
+    except Exception as e:
+        log.warning("GC jobs/ lỗi (bỏ qua, server vẫn chạy): %s", e)
     threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{port}")).start()
     print(f"\n  ViTranscript đang chạy tại http://127.0.0.1:{port}  (Ctrl+C để thoát)\n")
     # log_level info để thấy job start/end khi debug

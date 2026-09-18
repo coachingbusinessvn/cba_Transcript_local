@@ -1,0 +1,165 @@
+"""Tests cho app/janitor.py — GC thư mục jobs/ khi server khởi động."""
+import json
+import os
+import time
+from pathlib import Path
+
+import pytest
+
+from app.janitor import cleanup_jobs_dir
+
+_DAY = 86_400
+
+
+def _make_job(
+    jobs_dir: Path,
+    name: str,
+    status: str = "done",
+    age_days: float = 0.0,
+    payload_bytes: int = 0,
+) -> Path:
+    """Tạo job dir giả: status.json (+ payload) với mtime lùi `age_days` ngày."""
+    d = jobs_dir / name
+    d.mkdir(parents=True)
+    status_path = d / "status.json"
+    status_path.write_text(json.dumps({"status": status}), encoding="utf-8")
+    if payload_bytes:
+        (d / "audio16k.wav").write_bytes(b"x" * payload_bytes)
+    ts = time.time() - age_days * _DAY
+    os.utime(status_path, (ts, ts))
+    return d
+
+
+def _jobs_root(tmp_path: Path) -> Path:
+    d = tmp_path / "jobs"
+    d.mkdir()
+    return d
+
+
+def test_missing_jobs_dir_returns_zero_stats(tmp_path):
+    stats = cleanup_jobs_dir(tmp_path / "khong-ton-tai")
+    assert stats == {"removed": 0, "kept": 0, "freed_bytes": 0}
+
+
+def test_removes_expired_job_and_keeps_fresh(tmp_path):
+    jobs = _jobs_root(tmp_path)
+    old = _make_job(jobs, "oldjob", age_days=40)
+    new = _make_job(jobs, "newjob", age_days=1)
+
+    stats = cleanup_jobs_dir(jobs, max_age_days=30)
+
+    assert not old.exists()
+    assert new.exists()
+    assert stats["removed"] == 1
+    assert stats["kept"] == 1
+    assert stats["freed_bytes"] > 0
+
+
+def test_running_job_never_removed(tmp_path):
+    jobs = _jobs_root(tmp_path)
+    running = _make_job(jobs, "runningjob", status="running", age_days=90)
+
+    # Quá hạn VÀ quá dung lượng — vẫn không được đụng vào job đang chạy.
+    stats = cleanup_jobs_dir(jobs, max_age_days=30, max_total_bytes=1, keep_newest=0)
+
+    assert running.exists()
+    assert stats["removed"] == 0
+    assert stats["kept"] == 1
+
+
+def test_size_overflow_removes_oldest_first(tmp_path):
+    jobs = _jobs_root(tmp_path)
+    dirs = [
+        _make_job(jobs, f"j{i}", age_days=float(5 - i), payload_bytes=100)
+        for i in range(5)
+    ]  # j0 cũ nhất → j4 mới nhất
+
+    # keep_newest=0: chỉ thứ tự xóa (cũ nhất trước) quyết định job nào sống.
+    # Mỗi job ~120 byte (status.json + payload) → tổng ~600; cap 350 buộc
+    # phải xóa đúng 3 job cũ nhất, 2 job mới nhất sống sót.
+    stats = cleanup_jobs_dir(jobs, max_age_days=30, max_total_bytes=350, keep_newest=0)
+
+    assert not dirs[0].exists()
+    assert not dirs[1].exists()
+    assert not dirs[2].exists()
+    assert dirs[3].exists()
+    assert dirs[4].exists()
+    assert stats["removed"] == 3
+    assert stats["kept"] == 2
+
+
+def test_size_overflow_respects_keep_newest(tmp_path):
+    jobs = _jobs_root(tmp_path)
+    dirs = [
+        _make_job(jobs, f"j{i}", age_days=float(5 - i), payload_bytes=100)
+        for i in range(5)
+    ]
+
+    # Cap nhỏ → chỉ được xóa job ngoài 3 job mới nhất (j2, j3, j4 được giữ
+    # dù tổng vẫn vượt cap).
+    stats = cleanup_jobs_dir(jobs, max_age_days=30, max_total_bytes=1, keep_newest=3)
+
+    assert not dirs[0].exists()
+    assert not dirs[1].exists()
+    assert dirs[2].exists()
+    assert dirs[3].exists()
+    assert dirs[4].exists()
+    assert stats["removed"] == 2
+    assert stats["kept"] == 3
+
+
+def test_corrupt_or_non_dict_status_is_skipped(tmp_path):
+    jobs = _jobs_root(tmp_path)
+    bad = jobs / "badjob"
+    bad.mkdir()
+    bad_status = bad / "status.json"
+    bad_status.write_text("không phải json {{{", encoding="utf-8")
+    arr = jobs / "arrjob"
+    arr.mkdir()
+    arr_status = arr / "status.json"
+    arr_status.write_text("[1, 2, 3]", encoding="utf-8")
+    ts = time.time() - 40 * _DAY
+    os.utime(bad_status, (ts, ts))
+    os.utime(arr_status, (ts, ts))
+
+    stats = cleanup_jobs_dir(jobs, max_age_days=30, keep_newest=0)
+
+    assert bad.exists()
+    assert arr.exists()
+    assert stats["removed"] == 0
+
+
+def test_stray_dir_without_status_is_kept(tmp_path):
+    jobs = _jobs_root(tmp_path)
+    stray = jobs / "not-a-job"
+    stray.mkdir()
+    (stray / "junk.bin").write_bytes(b"z" * 50)
+    old = _make_job(jobs, "realjob", age_days=40)
+
+    stats = cleanup_jobs_dir(jobs, max_age_days=30, keep_newest=0)
+
+    assert stray.exists()
+    assert not old.exists()
+    assert stats["removed"] == 1
+    assert stats["kept"] == 0  # stray không tính là job
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink cần quyền admin trên Windows")
+def test_symlinked_job_dir_not_removed(tmp_path):
+    jobs = _jobs_root(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    status_path = outside / "status.json"
+    status_path.write_text(json.dumps({"status": "done"}), encoding="utf-8")
+    ts = time.time() - 40 * _DAY
+    os.utime(status_path, (ts, ts))
+    link = jobs / "linkjob"
+    link.symlink_to(outside, target_is_directory=True)
+
+    stats = cleanup_jobs_dir(jobs, max_age_days=30, keep_newest=0)
+
+    # Không xóa symlink (và tuyệt đối không xóa target bên ngoài jobs/).
+    assert link.is_symlink()
+    assert outside.exists()
+    assert status_path.exists()
+    assert stats["removed"] == 0
