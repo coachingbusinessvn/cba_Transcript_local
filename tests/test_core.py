@@ -593,6 +593,49 @@ def test_download_accepts_matching_hash(tmp_path, monkeypatch):
     assert dest.read_bytes() == payload
 
 
+def test_download_clobbers_leftover_dest(tmp_path, monkeypatch):
+    """Trên Windows, rename lên file đích đã tồn tại ném FileExistsError (khác
+    POSIX ghi đè êm). Nếu lần chạy trước chết sau khi tải archive nhưng trước
+    khi xóa nó, dest còn sót → _download phải ghi đè được (dùng os.replace,
+    không phải rename) nếu không mọi lần chạy sau đều lỗi."""
+    import hashlib
+    import io
+    import os
+
+    from app import diarize
+
+    payload = b"noi dung moi"
+
+    class FakeResponse(io.BytesIO):
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(
+        diarize.urllib.request, "urlopen", lambda url, timeout: FakeResponse(payload)
+    )
+    # Giả lập semantics Windows: os.rename không được phép ghi đè file đích.
+    real_rename = os.rename
+
+    def no_clobber_rename(src, dst):
+        if os.path.exists(dst):
+            raise FileExistsError(17, "Cannot create a file when that file already exists", dst)
+        return real_rename(src, dst)
+
+    monkeypatch.setattr(os, "rename", no_clobber_rename)
+
+    dest = tmp_path / "segmentation.tar.bz2"
+    dest.write_bytes(b"archive cu bi kill giua chung")  # dest sót lại từ lần trước
+
+    diarize._download(
+        "https://example.invalid/a.tar.bz2", dest, hashlib.sha256(payload).hexdigest()
+    )
+
+    assert dest.read_bytes() == payload
+
+
 def test_clean_names_drops_non_string_values():
     from app.server import _clean_names
 
@@ -600,6 +643,31 @@ def test_clean_names_drops_non_string_values():
     assert _clean_names(None) == {}
     assert _clean_names("khong phai dict") == {}
     assert _clean_names({0: "Huy"}) == {"0": "Huy"}  # key so -> chuoi
+
+
+def test_safe_stem_avoids_windows_device_names():
+    """Windows cấm tên thiết bị (CON, NUL, COM1-9, LPT1-9, PRN, AUX) kể cả khi
+    kèm đuôi mở rộng: file "con.mp3" upload xong export ra "con.docx" sẽ mở
+    device thay vì tạo file → lỗi/hang trên Windows. Stem phải được đổi."""
+    from app.server import _safe_stem
+
+    for stem in ("CON", "con", "Nul", "PRN", "AUX", "COM1", "com5", "LPT1", "lpt9"):
+        out = _safe_stem(f"{stem}.mp3")
+        assert out.upper() not in {
+            "CON", "PRN", "AUX", "NUL",
+            *(f"COM{i}" for i in range(1, 10)),
+            *(f"LPT{i}" for i in range(1, 10)),
+        }, f"stem {stem!r} -> {out!r} vẫn là tên thiết bị Windows"
+        assert out  # không được trả rỗng
+
+    # Tên thường chỉ giống tiền tố không bị đổi (không over-trigger)
+    assert _safe_stem("console.mp3") == "console"
+    assert _safe_stem("content.mp3") == "content"
+    assert _safe_stem("combo1.mp3") == "combo1"
+    # Ký tự cấm + trống vẫn như cũ ("a/" là separator POSIX → stem lấy phần cuối)
+    assert _safe_stem("a/b\\c:d.mp3") == "b_c_d"
+    assert _safe_stem("a\\b:c.mp3") == "a_b_c"
+    assert _safe_stem("...") == "transcript"
 
 
 def test_load_model_frees_old_model_before_building_new(monkeypatch):

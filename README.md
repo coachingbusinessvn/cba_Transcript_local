@@ -149,6 +149,14 @@ App ưu tiên `ffmpeg` có sẵn trên PATH; nếu thiếu sẽ **tự dùng sta
 2. Hoặc thêm `%USERPROFILE%\.local\bin` vào **PATH** hệ thống, rồi mở terminal mới.
 3. Kiểm tra: `uv --version`.
 
+### Windows: `run.bat` nháy cửa sổ rồi tắt ngay
+
+Mở `cmd.exe`, `cd` tới thư mục app rồi chạy tay `uv run python -m app.server` để đọc lỗi
+(`run.bat` không có `pause` nên cửa sổ tự đóng khi lỗi).
+
+> **Checklist verify đầy đủ trên Windows thật** (cài đặt → chạy → upload/export → edge cases):
+> [`docs/13-windows-verification-checklist.md`](docs/13-windows-verification-checklist.md)
+
 ### Job bị kẹt / lỗi giữa chừng
 
 - Xem thông báo trên UI.

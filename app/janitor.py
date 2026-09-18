@@ -65,6 +65,12 @@ def _list_valid_jobs(jobs_dir: Path) -> list[tuple[Path, float, bool]]:
             # target ngoài jobs/ (hoặc ném lỗi) — bỏ qua hoàn toàn.
             if entry.is_symlink() or not entry.is_dir():
                 continue
+            # Windows: junction/reparse point (OneDrive placeholder…) không
+            # phải symlink nên is_symlink() trượt — rmtree trên Python <3.12 đi
+            # theo junction và xóa cả target ngoài jobs/. st_reparse_tag chỉ
+            # có trên Windows; POSIX getattr về 0 → không đổi hành vi.
+            if getattr(entry.lstat(), "st_reparse_tag", 0):
+                continue
             status_path = entry / "status.json"
             status = _read_status(status_path)
             if status is None:

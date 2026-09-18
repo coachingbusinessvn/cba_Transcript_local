@@ -57,7 +57,10 @@ def _download(url: str, dest: Path, sha256: str) -> None:
             f"Model diarization tải về sai SHA-256 (nhận {actual[:12]}…). "
             "Hãy thử lại; nếu vẫn lỗi thì nguồn tải đã thay đổi."
         )
-    tmp.rename(dest)
+    # replace() chứ không phải rename(): trên Windows, rename lên dest đã tồn
+    # tại ném FileExistsError (vd archive sót lại từ lần tải bị kill giữa
+    # chừng) — replace ghi đè giống POSIX trên mọi OS.
+    tmp.replace(dest)
 
 
 def ensure_models() -> tuple[Path, Path]:

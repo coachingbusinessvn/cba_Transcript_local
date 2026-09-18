@@ -28,7 +28,7 @@
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
-| 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
+| 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER. Checklist verify Windows: [docs/13-windows-verification-checklist.md](13-windows-verification-checklist.md) |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 
 ## Kết quả đo WER (Task 12b — điền khi chạy)
@@ -46,7 +46,7 @@
 
 | Tiêu chí | Kết quả | Ghi chú |
 |---|---|---|
-| 1. Cài trên máy sạch không lỗi | PARTIAL | `uv sync` pass trên máy dev macOS arm64; **chưa thử máy sạch, Windows chưa chạy `install.bat` lần nào** |
+| 1. Cài trên máy sạch không lỗi | PARTIAL | `uv sync` pass trên máy dev macOS arm64; **chưa thử máy sạch, Windows chưa chạy `install.bat` lần nào** — checklist verify: [docs/13-windows-verification-checklist.md](13-windows-verification-checklist.md) |
 | 2. `run` tự mở browser + UI tiếng Việt | PASS | `TestClient` GET `/api/meta` → 200 (2026-07-24); `main()` mở browser sau 1.5s |
 | 3. File dài → DOCX/XLSX đủ timestamp, người nói, câu | PARTIAL | Smoke E2E (audio ngắn `say` + tiny) tạo DOCX/XLSX; chưa thử file ~30 phút |
 | 4. Glossary sửa đúng từ khai báo | PASS | Unit tests exact + fuzzy (`NVIDIA`, `Vinamilk`) |

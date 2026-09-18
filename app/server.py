@@ -60,6 +60,13 @@ _ALLOWED_HOSTS = {"127.0.0.1", "::1", "0.0.0.0", "localhost"}
 # Ký tự cấm trong tên file Windows + ký tự điều khiển — filename do client gửi
 # đi vào tên file export nên phải lọc trước khi ghép vào đường dẫn.
 _UNSAFE_STEM_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+# Tên thiết bị Windows: cấm đặt tên file kể cả khi kèm đuôi mở rộng ("CON.docx"
+# mở device thay vì tạo file). POSIX không cấm nên chỉ lộ trên Windows thật.
+_WIN_DEVICE_STEMS = frozenset(
+    ["CON", "PRN", "AUX", "NUL"]
+    + [f"COM{i}" for i in range(1, 10)]
+    + [f"LPT{i}" for i in range(1, 10)]
+)
 _SENTENCE_FIELDS = frozenset(("start", "end", "text", "speaker"))
 
 
@@ -452,6 +459,10 @@ def _safe_stem(filename: str) -> str:
     (\\ / : * ? " < > |) và ký tự điều khiển, giới hạn độ dài để không vượt
     giới hạn tên file của OS."""
     stem = _UNSAFE_STEM_CHARS.sub("_", Path(filename).stem)[:120].strip(" .")
+    # Windows cấm đặt file trùng tên thiết bị kể cả khi kèm đuôi ("CON.docx"):
+    # ghi vào đó mở device thay vì tạo file → export lỗi. Thêm "_" phá trùng.
+    if stem.upper() in _WIN_DEVICE_STEMS:
+        stem = f"_{stem}"
     return stem or "transcript"
 
 

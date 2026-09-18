@@ -195,6 +195,45 @@ def test_stray_dir_without_status_is_kept(tmp_path):
     assert stats["kept"] == 0  # stray không tính là job
 
 
+def test_reparse_point_job_dir_skipped(monkeypatch, tmp_path):
+    """Junction/reparse point trên Windows KHÔNG phải symlink nên is_symlink()
+    không bắt được: entry.is_dir() theo junction trả True và rmtree (Python
+    <3.12) đi theo junction xóa cả target bên ngoài jobs/. GC phải bỏ qua
+    mọi entry có st_reparse_tag — giả lập bằng cách gắn tag vào lstat
+    (Path.lstat trên 3.12 = os.stat(follow_symlinks=False))."""
+    from app import janitor
+
+    jobs = _jobs_root(tmp_path)
+    jdir = _make_job(jobs, "junctionjob", age_days=40)
+    real_stat = os.stat
+
+    class _FakeStat:
+        """stat_result giả: delegate mọi field thật, chỉ thêm st_reparse_tag
+        (field này chỉ tồn tại trong stat_result trên Windows)."""
+
+        def __init__(self, real):
+            self._real = real
+            self.st_reparse_tag = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    def fake_stat(path, *a, **k):
+        real = real_stat(path, *a, **k)
+        # lstat (không follow) trên junction mới trả reparse tag; stat thường
+        # (is_dir) vẫn đi xuyên junction như Windows thật.
+        if Path(path) == jdir and k.get("follow_symlinks") is False:
+            return _FakeStat(real)
+        return real
+
+    monkeypatch.setattr(janitor.os, "stat", fake_stat)
+
+    stats = janitor.cleanup_jobs_dir(jobs, max_age_days=30, keep_newest=0)
+
+    assert jdir.exists()          # không xóa junction, tuyệt đối không đi theo
+    assert stats["removed"] == 0
+
+
 @pytest.mark.skipif(os.name == "nt", reason="symlink cần quyền admin trên Windows")
 def test_symlinked_job_dir_not_removed(tmp_path):
     jobs = _jobs_root(tmp_path)
