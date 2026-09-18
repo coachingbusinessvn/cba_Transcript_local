@@ -111,7 +111,7 @@
   - Refs: `install.bat:2`, `run.bat:2`.
 - [ ] **D6 — Export khi file đích đang mở (job cũ export 2 lần).**
   - Verify: export docx → mở file docx trong Word (không đóng) → export lại cùng định dạng → kiểm chức app báo lỗi rõ hoặc ghi đè được, không 500 mù mờ.
-  - Tại sao: export ghi `job_dir/{stem}.{fmt}` (`app/server.py:488`) — nếu file đang mở trong Word, ghi đè trên Windows ném `PermissionError` → route trả 500 (traceback log). Static analysis: lỗi hiện rõ, không mất dữ liệu — mức chấp nhận được; verify UX thật.
+  - Tại sao: export ghi `job_dir/{stem}.{fmt}` (`app/server.py:489`) — nếu file đang mở trong Word, ghi đè trên Windows ném `PermissionError` → route trả 500 (traceback log). Static analysis: lỗi hiện rõ, không mất dữ liệu — mức chấp nhận được; verify UX thật.
   - Refs: `app/server.py:478-492`, `app/export.py:58,96,109,120`.
 - [ ] **D7 — `os.replace` ghi `status.json` khi file đang được đọc đồng thời.**
   - Verify: khó kiểm chứng trực tiếp (race window nhỏ) — dùng đợt chạy job dài quan sát log có `Không ghi được status job` không.
@@ -121,9 +121,9 @@
 ## E. Unit tests trên Windows (dev)
 
 - [ ] **E1 — `uv run pytest tests/ -x -q` xanh trên Windows.**
-  - Verify: chạy suite; test symlink đã `skipif(os.name=="nt")` (`tests/test_janitor.py:237`) nên không cần admin; test live-server bind loopback không bị firewall chặn (`tests/test_server_live.py:28`).
+  - Verify: chạy suite; test symlink đã `skipif(os.name=="nt")` (`tests/test_janitor.py:241`) nên không cần admin; test live-server bind loopback không bị firewall chặn (`tests/test_server_live.py:28`).
   - Tại sao: sau fix, không còn assertion phụ thuộc parse path POSIX: test `_safe_stem` chỉ assert bất biến đúng trên cả hai OS (stem không rỗng, không chứa `\ / :`) vì `Path().stem` parse `\` khác nhau giữa POSIX (không phải separator) và Windows (là separator). `tempfile.TemporaryDirectory` đều đóng file đúng. Mọi test của audit này (device-name, clobber-rename, reparse-tag) mô phỏng semantics Windows bằng monkeypatch nên chạy được trên cả hai OS. Phụ thuộc platform còn lại (đã ghi trong code): `test_reparse_point_job_dir_skipped` chỉ meaningful trên Python ≥3.11 — trên 3.10 `Path.lstat` bind `os.lstat` qua `_accessor` nên monkeypatch `os.stat` không chặn được và test sẽ fail (uv pin 3.12); `test_symlinked_job_dir_not_removed` skip trên `nt`; live-server bind `127.0.0.1` thật.
-  - Refs: `tests/test_janitor.py:237`, `tests/test_server_live.py:18-53`, `tests/test_core.py`.
+  - Refs: `tests/test_janitor.py:241`, `tests/test_server_live.py:18-53`, `tests/test_core.py`.
 - [ ] **E2 — KHÔNG chạy `scripts/smoke_e2e.py` trên Windows.**
   - Verify: bỏ qua script này (dùng `say` của macOS); thay bằng C1–C5 ở trên.
   - Refs: `scripts/smoke_e2e.py`.
