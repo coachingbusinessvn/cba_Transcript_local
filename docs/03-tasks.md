@@ -58,7 +58,7 @@
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
+- [x] ~~GC thư mục jobs (disk)~~ — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày; jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; job `running` chỉ bị xóa nếu status.json đã quá hạn (process cũ chết), không bao giờ bị xóa vì dung lượng
 - [x] ~~Job song song OOM~~ — đã chốt: 1 job + HTTP 409 (plan review)
 - [x] ~~Reload model mỗi job~~ — đã chốt: cache 1 model/process (plan review)
 - [x] ~~numpy transitive only~~ — đã khai báo tường minh (plan review)

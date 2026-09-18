@@ -5,10 +5,13 @@ thời gian. Chính sách: xóa job quá `max_age_days` ngày (theo mtime status
 nếu tổng jobs/ vẫn vượt `max_total_bytes` thì xóa tiếp job cũ nhất trước, nhưng
 không bao giờ đụng `keep_newest` job mới nhất — luôn giữ lại vài kết quả gần đây.
 
-An toàn: chỉ xóa thư mục con có status.json là dict JSON hợp lệ, không xóa job
-`status == "running"`, không follow symlink ra ngoài jobs/, entry không đọc
-được thì bỏ qua. GC chỉ chạy lúc khởi động (server chưa nhận job) nên không có
-race với job đang ghi.
+An toàn: chỉ xóa thư mục con có status.json là dict JSON hợp lệ, không follow
+symlink ra ngoài jobs/, entry không đọc được thì bỏ qua. Job `status ==
+"running"` miễn nhiễm hoàn toàn với luật dung lượng, và với luật tuổi chừng nào
+status.json còn mới — GC chạy lúc khởi động nên job running mới có thể là
+instance khác đang sống hoặc server vừa crash (giữ lại để `_get_job` khôi phục
+partial.jsonl); job running mà status.json đã quá `max_age_days` thì process
+viết nó chắc chắn đã chết → xóa được theo luật tuổi.
 """
 import json
 import logging
@@ -41,7 +44,10 @@ def _read_status(path: Path) -> dict | None:
     """status.json hợp lệ = JSON dict; hỏng/không phải dict/không đọc được → None."""
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except Exception:
+        # Bắt rộng cố ý: ngoài OSError/ValueError còn có RecursionError (JSON
+        # lồng quá sâu) hay lỗi lạ khác — entry hỏng chỉ bị skip, không được
+        # làm hỏng cả pass GC.
         return None
     return data if isinstance(data, dict) else None
 
@@ -106,15 +112,17 @@ def cleanup_jobs_dir(
     cutoff = time.time() - max_age_days * _SECONDS_PER_DAY
 
     # Luật tuổi trước: job quá hạn bị xóa vô điều kiện (keep_newest chỉ chặn
-    # luật dung lượng). Job còn hạn nhưng nằm ngoài keep_newest mới nhất là ứng
-    # viên cho luật dung lượng — gom lại, xử lý sau khi biết phần đĩa đã được
-    # giải phóng bởi luật tuổi.
+    # luật dung lượng) — kể cả job "running": status.json đã cũ hơn max_age_days
+    # nghĩa là process viết nó đã chết từ lâu (GC chạy lúc khởi động, process
+    # này chưa thể có job chạy thật). Job running CÒN MỚI thì giữ lại: có thể
+    # là instance khác đang sống hoặc server vừa crash — còn cần để _get_job
+    # khôi phục partial.jsonl; và luật dung lượng không bao giờ được đụng vào.
     size_candidates: list[Path] = []
     for rank, (path, mtime, running) in enumerate(jobs):
-        if running:
-            continue  # không bao giờ xóa job đang chạy
         if mtime < cutoff:
             total -= _remove(path)
+        elif running:
+            continue  # running còn mới — miễn nhiễm cả hai luật
         elif rank >= keep_newest:
             size_candidates.append(path)
 

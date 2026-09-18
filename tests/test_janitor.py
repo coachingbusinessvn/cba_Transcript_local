@@ -55,16 +55,67 @@ def test_removes_expired_job_and_keeps_fresh(tmp_path):
     assert stats["freed_bytes"] > 0
 
 
-def test_running_job_never_removed(tmp_path):
+def test_stale_running_job_removed_by_age_rule(tmp_path):
+    """Job "running" nhưng status.json cũ hơn max_age_days = process viết nó đã
+    chết từ lâu (GC chạy lúc khởi động, process này chưa thể có job chạy) →
+    luật tuổi được phép xóa."""
     jobs = _jobs_root(tmp_path)
     running = _make_job(jobs, "runningjob", status="running", age_days=90)
 
-    # Quá hạn VÀ quá dung lượng — vẫn không được đụng vào job đang chạy.
-    stats = cleanup_jobs_dir(jobs, max_age_days=30, max_total_bytes=1, keep_newest=0)
+    stats = cleanup_jobs_dir(jobs, max_age_days=30)
+
+    assert not running.exists()
+    assert stats["removed"] == 1
+    assert stats["kept"] == 0
+
+
+def test_fresh_running_job_kept(tmp_path):
+    """Job "running" còn mới: có thể là instance khác đang chạy hoặc server vừa
+    crash — giữ lại để _get_job khôi phục partial.jsonl."""
+    jobs = _jobs_root(tmp_path)
+    running = _make_job(jobs, "runningjob", status="running", age_days=0)
+
+    stats = cleanup_jobs_dir(jobs, max_age_days=30)
 
     assert running.exists()
     assert stats["removed"] == 0
     assert stats["kept"] == 1
+
+
+def test_running_job_never_removed_by_size_rule(tmp_path):
+    """Luật dung lượng miễn nhiễm hoàn toàn với job running: vượt cap thế nào
+    cũng không xóa job đang chạy (còn mới) để lấy lại chỗ."""
+    jobs = _jobs_root(tmp_path)
+    running = _make_job(
+        jobs, "runningjob", status="running", age_days=0, payload_bytes=200
+    )
+    old_done = _make_job(jobs, "donejob", status="done", age_days=0, payload_bytes=200)
+
+    stats = cleanup_jobs_dir(jobs, max_age_days=30, max_total_bytes=1, keep_newest=0)
+
+    assert running.exists()  # running: không bao giờ bị xóa vì dung lượng
+    assert not old_done.exists()  # done: bị xóa để cố cứu dung lượng
+    assert stats["removed"] == 1
+    assert stats["kept"] == 1
+
+
+def test_pathological_status_json_skips_entry(monkeypatch, tmp_path):
+    """status.json làm json.loads ném lỗi không lường (vd RecursionError khi
+    lồng quá sâu) → chỉ skip entry đó, không làm hỏng cả pass GC."""
+    from app import janitor
+
+    jobs = _jobs_root(tmp_path)
+    bad = _make_job(jobs, "badjob", age_days=40)
+
+    def boom(_s, **_kw):
+        raise RecursionError("json lồng quá sâu")
+
+    monkeypatch.setattr(janitor.json, "loads", boom)
+
+    stats = janitor.cleanup_jobs_dir(jobs, max_age_days=30, keep_newest=0)
+
+    assert bad.exists()
+    assert stats["removed"] == 0
 
 
 def test_size_overflow_removes_oldest_first(tmp_path):
