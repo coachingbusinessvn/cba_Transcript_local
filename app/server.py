@@ -459,9 +459,9 @@ def _safe_stem(filename: str) -> str:
     (\\ / : * ? " < > |) và ký tự điều khiển, giới hạn độ dài để không vượt
     giới hạn tên file của OS."""
     stem = _UNSAFE_STEM_CHARS.sub("_", Path(filename).stem)[:120].strip(" .")
-    # Windows cấm đặt file trùng tên thiết bị kể cả khi kèm đuôi ("CON.docx"):
-    # ghi vào đó mở device thay vì tạo file → export lỗi. Thêm "_" phá trùng.
-    if stem.upper() in _WIN_DEVICE_STEMS:
+    # Windows cấm đặt file trùng tên thiết bị kể cả khi kèm đuôi ("CON.docx")
+    # và match trên phần trước dấu chấm đầu tiên ("con.heo.docx" vẫn là CON).
+    if stem.split(".", 1)[0].upper() in _WIN_DEVICE_STEMS:
         stem = f"_{stem}"
     return stem or "transcript"
 

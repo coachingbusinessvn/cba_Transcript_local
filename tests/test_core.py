@@ -651,22 +651,37 @@ def test_safe_stem_avoids_windows_device_names():
     device thay vì tạo file → lỗi/hang trên Windows. Stem phải được đổi."""
     from app.server import _safe_stem
 
+    devices = {
+        "CON", "PRN", "AUX", "NUL",
+        *(f"COM{i}" for i in range(1, 10)),
+        *(f"LPT{i}" for i in range(1, 10)),
+    }
     for stem in ("CON", "con", "Nul", "PRN", "AUX", "COM1", "com5", "LPT1", "lpt9"):
         out = _safe_stem(f"{stem}.mp3")
-        assert out.upper() not in {
-            "CON", "PRN", "AUX", "NUL",
-            *(f"COM{i}" for i in range(1, 10)),
-            *(f"LPT{i}" for i in range(1, 10)),
-        }, f"stem {stem!r} -> {out!r} vẫn là tên thiết bị Windows"
+        assert out.upper() not in devices, (
+            f"stem {stem!r} -> {out!r} vẫn là tên thiết bị Windows"
+        )
         assert out  # không được trả rỗng
+
+    # Windows match tên thiết bị trên component TRƯỚC dấu chấm đầu tiên của
+    # tên file: stem "con.heo" → export "con.heo.docx" vẫn resolve về device
+    # CON → phần đầu của stem phải được đổi (prefix "_").
+    out = _safe_stem("con.heo.mp3")
+    assert out.split(".", 1)[0].upper() not in devices
+    assert out.startswith("_"), f"con.heo.mp3 -> {out!r}: component đầu vẫn là CON"
 
     # Tên thường chỉ giống tiền tố không bị đổi (không over-trigger)
     assert _safe_stem("console.mp3") == "console"
     assert _safe_stem("content.mp3") == "content"
     assert _safe_stem("combo1.mp3") == "combo1"
-    # Ký tự cấm + trống vẫn như cũ ("a/" là separator POSIX → stem lấy phần cuối)
-    assert _safe_stem("a/b\\c:d.mp3") == "b_c_d"
-    assert _safe_stem("a\\b:c.mp3") == "a_b_c"
+    # Ký tự cấm bị thay "_"; Path().stem parse khác nhau giữa POSIX (\ không
+    # phải separator) và Windows (là separator) nên KHÔNG assert giá trị stem
+    # cụ thể — chỉ assert bất biến đúng trên cả hai OS: không rỗng, không
+    # còn ký tự cấm nào.
+    for name in ("a/b\\c:d.mp3", "a\\b:c.mp3"):
+        out = _safe_stem(name)
+        assert out and out != "transcript"
+        assert not any(c in out for c in '\\/:*?"<>|')
     assert _safe_stem("...") == "transcript"
 
 

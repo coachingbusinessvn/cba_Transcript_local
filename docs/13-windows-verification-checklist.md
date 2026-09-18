@@ -45,8 +45,8 @@
   - Refs: `run.bat`, `app/server.py:520-548`.
 - [ ] **B2 — Không bị Windows Firewall/SmartScreen chặn listen socket.**
   - Verify: lần chạy đầu không có popup firewall; nếu có, cho phép rồi kiểm chức UI vẫn vào được.
-  - Tại sao: server bind `127.0.0.1` (`app/server.py:537`) — loopback thường không kích hoạt firewall prompt, nhưng một số endpoint-security chặn cả loopback listen.
-  - Refs: `app/server.py:537`.
+  - Tại sao: server bind `127.0.0.1` (`app/server.py:548`) — loopback thường không kích hoạt firewall prompt, nhưng một số endpoint-security chặn cả loopback listen.
+  - Refs: `app/server.py:548`.
 - [ ] **B3 — Truy cập bằng `localhost:<port>` cũng vào được.**
   - Verify: mở `http://localhost:<port>` trên browser → 200 (không phải 403).
   - Tại sao: Windows thường resolve `localhost` → `::1`; server chỉ bind IPv4 nên browser phải fallback IPv4 (Happy Eyeballs) — kiểm chứng trên máy thật. Guard cho phép `localhost`/`::1`/`127.0.0.1` (`app/server.py:59`), Host `localhost:port` parse đúng qua `rsplit` (`app/server.py:77`). Static analysis: Host `[::1]:port` → `::1` được chấp nhận; Host `[::1]` không port → 403 fail-closed (chấp nhận được — browser luôn gửi port cho port không mặc định).
@@ -58,7 +58,7 @@
 - [ ] **B5 — GC khởi động (janitor) không crash khi gặp file bị khóa/read-only.**
   - Verify: tạo sẵn job cũ >30 ngày trong `jobs/` (sửa mtime `status.json`), đặt một file trong job ở trạng thái read-only hoặc mở file đó bằng app khác, khởi động server → server vẫn lên, log `GC jobs/: không xóa được …` cảnh báo chứ không crash.
   - Tại sao: `shutil.rmtree` trên Windows ném `PermissionError` với file đang mở/read-only — đã được catch (`app/janitor.py:107-111`) nên static analysis: skip êm, không crash. Cần verify hành vi thật vì read-only attribute là khác biệt Windows-only.
-  - Refs: `app/janitor.py:97-111`, `app/server.py:524-533`.
+  - Refs: `app/janitor.py:103-114`, `app/server.py:535-544`.
 
 ## C. Luồng upload → transcribe → export
 
@@ -83,18 +83,19 @@
   - Refs: `app/server.py:457-466,478-492,517`, `app/export.py`.
 - [ ] **C6 — Job `running` kẹt do đóng cửa sổ console giữa chừng được phục hồi.**
   - Verify: đang chạy job → đóng hẳn cửa sổ CMD (không Ctrl+C) → mở lại `run.bat` → vào job cũ → status `error` + transcript một phần (nếu có `partial.jsonl`).
-  - Tại sao: đóng cửa sổ console trên Windows = kill process (không có SIGTERM) — `_get_job` đọc `status.json` + `partial.jsonl` (`app/server.py:400-437`); thread daemon không giữ process (`app/server.py:387`). Static analysis: đúng thiết kế, verify UX thật.
-  - Refs: `app/server.py:380-381,400-437`, `app/checkpoint.py`.
+  - Tại sao: đóng cửa sổ console trên Windows = kill process (không có SIGTERM) — `_get_job` đọc `status.json` + `partial.jsonl` (`app/server.py:401-449`); thread daemon không giữ process (`app/server.py:387-388`). Static analysis: đúng thiết kế, verify UX thật.
+  - Refs: `app/server.py:387-388,401-449`, `app/checkpoint.py`.
 
 ## D. Edge cases
 
 - [ ] **D1 — Tên file có dấu tiếng Việt / Unicode (`họp tháng 9.mp3`, `会议.mp4`).**
   - Verify: upload file tên có dấu → job nhận đúng tên hiển thị; export ra file có tên có dấu, tải về mở được; transcript không lỗi.
-  - Tại sao: filename chỉ đi vào `job["filename"]` + `_safe_stem` — filesystem chỉ thấy `input<suffix>` (`app/server.py:300-301,344-345`) nên static analysis: an toàn. ffmpeg trên Windows nhận argv Unicode (wmain→UTF-8) — thường ổn, nhưng chỉ kiểm chứng máy thật; browser gửi basename không gửi full path.
-  - Refs: `app/server.py:300-301,342-345,457-466`.
-- [ ] **D2 — Tên file trùng tên thiết bị Windows (`CON.mp3`, `NUL.wav`, `com1.m4a`).**
-  - Verify: upload `CON.mp3` → export → file tải về tên `_CON.docx` (không phải `CON.docx`), không lỗi 500.
+  - Tại sao: filename chỉ đi vào `job["filename"]` + `_safe_stem` — filesystem chỉ thấy `input<suffix>` (`app/server.py:307,349`) nên static analysis: an toàn. ffmpeg trên Windows nhận argv Unicode (wmain→UTF-8) — thường ổn, nhưng chỉ kiểm chứng máy thật; browser gửi basename không gửi full path.
+  - Refs: `app/server.py:307,327,349,457-466`.
+- [ ] **D2 — Tên file trùng tên thiết bị Windows (`CON.mp3`, `NUL.wav`, `com1.m4a`, `con.heo.mp3`).**
+  - Verify: upload `CON.mp3` → export → file tải về tên `_CON.docx` (không phải `CON.docx`), không lỗi 500; upload `con.heo.mp3` → `_con.heo.docx` (Windows match tên thiết bị trên component trước dấu chấm đầu tiên của tên file).
   - Tại sao: đã vá `_safe_stem` + test (`_WIN_DEVICE_STEMS`, `app/server.py:65-69,464-465`; test `tests/test_core.py::test_safe_stem_avoids_windows_device_names`). Trên POSIX test pass được vì chỉ kiểm stem trả về; **verify thật trên Windows** rằng không còn lỗi ghi file.
+  - Không cover (exotic — chỉ ghi nhận, verify-only): `CONIN$`/`CONOUT$`/`CLOCK$` và dạng superscript `COM¹`/`COM²`/`COM³` (Windows map về COM1/2/3) KHÔNG nằm trong `_WIN_DEVICE_STEMS`; cũng không xử lý component đầu có trailing space (`con .heo.docx`).
   - Refs: `app/server.py:65-69,457-466`.
 - [ ] **D3 — File input đang mở bởi app khác / file trong thư mục OneDrive.**
   - Verify: upload file đang mở (vd video đang phát trong player); file nằm trong OneDrive "Files On-Demand" (placeholder) → upload + chạy bình thường.
@@ -120,9 +121,9 @@
 ## E. Unit tests trên Windows (dev)
 
 - [ ] **E1 — `uv run pytest tests/ -x -q` xanh trên Windows.**
-  - Verify: chạy suite; test symlink đã `skipif(os.name=="nt")` (`tests/test_janitor.py:225`) nên không cần admin; test live-server bind loopback không bị firewall chặn (`tests/test_server_live.py:28`).
-  - Tại sao: không có hardcoded `/` trong assertion path; `tempfile.TemporaryDirectory` đều đóng file đúng. Mọi test mới của audit này (device-name, clobber-rename, reparse-tag) mô phỏng semantics Windows bằng monkeypatch nên chạy được trên cả hai OS.
-  - Refs: `tests/test_janitor.py:225`, `tests/test_server_live.py:18-53`, `tests/test_core.py`.
+  - Verify: chạy suite; test symlink đã `skipif(os.name=="nt")` (`tests/test_janitor.py:237`) nên không cần admin; test live-server bind loopback không bị firewall chặn (`tests/test_server_live.py:28`).
+  - Tại sao: sau fix, không còn assertion phụ thuộc parse path POSIX: test `_safe_stem` chỉ assert bất biến đúng trên cả hai OS (stem không rỗng, không chứa `\ / :`) vì `Path().stem` parse `\` khác nhau giữa POSIX (không phải separator) và Windows (là separator). `tempfile.TemporaryDirectory` đều đóng file đúng. Mọi test của audit này (device-name, clobber-rename, reparse-tag) mô phỏng semantics Windows bằng monkeypatch nên chạy được trên cả hai OS. Phụ thuộc platform còn lại (đã ghi trong code): `test_reparse_point_job_dir_skipped` chỉ meaningful trên Python ≥3.11 — trên 3.10 `Path.lstat` bind `os.lstat` qua `_accessor` nên monkeypatch `os.stat` không chặn được và test sẽ fail (uv pin 3.12); `test_symlinked_job_dir_not_removed` skip trên `nt`; live-server bind `127.0.0.1` thật.
+  - Refs: `tests/test_janitor.py:237`, `tests/test_server_live.py:18-53`, `tests/test_core.py`.
 - [ ] **E2 — KHÔNG chạy `scripts/smoke_e2e.py` trên Windows.**
   - Verify: bỏ qua script này (dùng `say` của macOS); thay bằng C1–C5 ở trên.
   - Refs: `scripts/smoke_e2e.py`.
@@ -133,7 +134,7 @@
 
 | # | Lỗi | Fix | Test |
 |---|-----|-----|------|
-| 1 | `_safe_stem` không lọc tên thiết bị Windows (`CON.mp3` → `CON.docx` mở device thay vì tạo file) | Thêm `_WIN_DEVICE_STEMS`, prefix `_` khi trùng — `app/server.py:65-69,464-465` | `test_safe_stem_avoids_windows_device_names` |
+| 1 | `_safe_stem` không lọc tên thiết bị Windows (`CON.mp3` → `CON.docx`; `con.heo.mp3` → `con.heo.docx` — Windows match component trước dấu chấm đầu tiên — mở device thay vì tạo file) | Thêm `_WIN_DEVICE_STEMS`, prefix `_` khi component đầu của stem trùng — `app/server.py:65-69,464-465` | `test_safe_stem_avoids_windows_device_names` |
 | 2 | `diarize._download` dùng `tmp.rename(dest)` — Windows ném `FileExistsError` khi dest còn sót từ lần tải bị kill → mọi lần chạy sau lỗi | `tmp.replace(dest)` — `app/diarize.py:60-63` | `test_download_clobbers_leftover_dest` (mô phỏng rename-no-clobber bằng monkeypatch `os.rename`) |
 | 3 | janitor chỉ check `is_symlink()` — junction/reparse point (Windows) trượt; `rmtree` trên Python <3.12 đi theo junction xóa target ngoài `jobs/` | Bỏ qua entry có `st_reparse_tag` ≠ 0 — `app/janitor.py:68-73` | `test_reparse_point_job_dir_skipped` (mô phỏng reparse tag qua `os.stat`) |
 | 4 | UI báo "mở lại app (run.command)" — người dùng Windows không có file đó | Sửa text "run.command trên macOS / run.bat trên Windows" — `app/static/index.html:668-669` | — (text tĩnh) |
@@ -148,7 +149,7 @@
 | `os.replace` status write (`app/server.py:172-175`) | tmp đóng trước replace; race đọc-đồng-thời trên Windows → `PermissionError` → catch → degrade êm (giữ RAM). |
 | `extracted_audio` containment (`app/server.py:509-517`) | `resolve()` + `is_relative_to()` — pathlib Windows casefold xử lý case drive letter; `\\?\` verbatim trong status.json → fail-closed 404. |
 | `_free_port`/`main()` (`app/server.py:520-548`) | `connect_ex` loopback semantics giống POSIX; `webbrowser.open` dùng URL literal `127.0.0.1` — không phụ thuộc resolve `localhost`. |
-| `janitor` rmtree (`app/janitor.py:97-111`) | `PermissionError`/read-only → catch → skip êm, không crash server. |
+| `janitor` rmtree (`app/janitor.py:103-114`) | `PermissionError`/read-only → catch → skip êm, không crash server. |
 | subprocess (`app/media.py`) | Toàn bộ arg list, không `shell=True`; `shutil.which` resolve `.exe` qua PATHEXT. |
 | `tarfile.extractall(filter="data")` (`app/diarize.py:76`) | `filter` có từ Python 3.10.12/3.11.4/3.12 — uv pin 3.12. |
 | `pipeline` filename (`app/pipeline.py:35-36`) | Input luôn là `input<suffix>` do server đặt → stem an toàn, không mang filename người dùng. |

@@ -200,7 +200,13 @@ def test_reparse_point_job_dir_skipped(monkeypatch, tmp_path):
     không bắt được: entry.is_dir() theo junction trả True và rmtree (Python
     <3.12) đi theo junction xóa cả target bên ngoài jobs/. GC phải bỏ qua
     mọi entry có st_reparse_tag — giả lập bằng cách gắn tag vào lstat
-    (Path.lstat trên 3.12 = os.stat(follow_symlinks=False))."""
+    (Path.lstat trên 3.11/3.12 = os.stat(follow_symlinks=False)).
+
+    Chú ý phiên bản Python: monkeypatch `os.stat` chỉ chặn được Path.lstat()
+    trên Python 3.11/3.12 (lstat đi qua stat(follow_symlinks=False)). Trên
+    3.10, Path.lstat bind `os.lstat` trực tiếp qua `_accessor` (bind lúc
+    định nghĩa class, không tra `os.stat` lúc gọi) nên tag giả không được
+    gắn → test này chỉ có ý nghĩa trên Python 3.11+ (uv pin 3.12)."""
     from app import janitor
 
     jobs = _jobs_root(tmp_path)
