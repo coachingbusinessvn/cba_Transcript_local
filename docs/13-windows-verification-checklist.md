@@ -18,7 +18,7 @@
 
 - [ ] **A1 — `install.bat` chạy được khi double-click từ Explorer.**
   - Verify: clone/copy repo về máy Windows (ZIP từ GitHub + `git clone`), double-click `install.bat`, cài xong không lỗi.
-  - Tại sao: `install.bat`/`run.bat` trong repo đang lưu **LF-only** (verify bytewise: `0a`, không có `0d 0a`), và repo **không có `.gitattributes`** ép CRLF. cmd.exe hiện đại thường vẫn parse được file LF cho script tuyến tính, nhưng khối `if errorlevel 1 ( ... )` nhiều dòng (`install.bat:5-8`) là pattern có rủi ro parse khác biệt. File tải qua GitHub ZIP hay clone với `core.autocrlf=false` sẽ giữ nguyên LF. Nếu script chạy sai/không chạy → đổi file sang CRLF hoặc thêm `.gitattributes` (`*.bat text eol=crlf`) rồi kiểm lại.
+  - Tại sao: `install.bat`/`run.bat` trong repo đang lưu **LF-only** (verify bytewise: `0a`, không có `0d 0a`); `.gitattributes` (`*.bat text eol=crlf`) đã được thêm ở commit `06c8fae` nên **git clone/checkout trên Windows sẽ nhận CRLF**. Rủi ro còn lại: file tải qua **GitHub ZIP archive** (bỏ qua `eol` attribute) hoặc clone với `core.autocrlf=false` vẫn giữ nguyên LF. cmd.exe hiện đại thường vẫn parse được file LF cho script tuyến tính, nhưng khối `if errorlevel 1 ( ... )` nhiều dòng (`install.bat:5-8`) là pattern có rủi ro parse khác biệt. Nếu script chạy sai/không chạy → đổi file sang CRLF rồi kiểm lại.
   - Refs: `install.bat:1-14`, `run.bat:1-4`.
 - [ ] **A2 — Nhánh cài `uv` qua PowerShell hoạt động.**
   - Verify: trên máy chưa có `uv`, chạy `install.bat` → `uv` tự cài → `uv --version` ra số phiên bản.
@@ -121,9 +121,9 @@
 ## E. Unit tests trên Windows (dev)
 
 - [ ] **E1 — `uv run pytest tests/ -x -q` xanh trên Windows.**
-  - Verify: chạy suite; test symlink đã `skipif(os.name=="nt")` (`tests/test_janitor.py:241`) nên không cần admin; test live-server bind loopback không bị firewall chặn (`tests/test_server_live.py:28`).
+  - Verify: chạy suite; test symlink đã `skipif(os.name=="nt")` (`tests/test_janitor.py:243`) nên không cần admin; test live-server bind loopback không bị firewall chặn (`tests/test_server_live.py:28`).
   - Tại sao: sau fix, không còn assertion phụ thuộc parse path POSIX: test `_safe_stem` chỉ assert bất biến đúng trên cả hai OS (stem không rỗng, không chứa `\ / :`) vì `Path().stem` parse `\` khác nhau giữa POSIX (không phải separator) và Windows (là separator). `tempfile.TemporaryDirectory` đều đóng file đúng. Mọi test của audit này (device-name, clobber-rename, reparse-tag) mô phỏng semantics Windows bằng monkeypatch nên chạy được trên cả hai OS. Phụ thuộc platform còn lại (đã ghi trong code): `test_reparse_point_job_dir_skipped` chỉ meaningful trên Python ≥3.11 — trên 3.10 `Path.lstat` bind `os.lstat` qua `_accessor` nên monkeypatch `os.stat` không chặn được và test sẽ fail (uv pin 3.12); `test_symlinked_job_dir_not_removed` skip trên `nt`; live-server bind `127.0.0.1` thật.
-  - Refs: `tests/test_janitor.py:241`, `tests/test_server_live.py:18-53`, `tests/test_core.py`.
+  - Refs: `tests/test_janitor.py:243`, `tests/test_server_live.py:18-53`, `tests/test_core.py`.
 - [ ] **E2 — KHÔNG chạy `scripts/smoke_e2e.py` trên Windows.**
   - Verify: bỏ qua script này (dùng `say` của macOS); thay bằng C1–C5 ở trên.
   - Refs: `scripts/smoke_e2e.py`.

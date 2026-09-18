@@ -21,7 +21,7 @@
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py` + `tests/test_server_live.py`, 92 test) | 🟢 | 91 passed, 1 deselected |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py` + `tests/test_server_live.py`, 95 test) | 🟢 | 94 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |

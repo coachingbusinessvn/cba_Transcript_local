@@ -47,11 +47,10 @@ docs/
   03-tasks.md               Task tracking table (done / in-progress / todo, WER results)
   11-tasks-punctuation-restoration.md   Punctuation task spec
   13-windows-verification-checklist.md  Windows verify checklist (Task 14)
-.worktrees/
-  vitranscript-impl/        ALL CODE lives here (git worktree, branch: vitranscript-impl)
+app/                        ALL application code lives here (merged to repo root 2026-07-24)
 ```
 
-**Working directory rule:** always use `.worktrees/vitranscript-impl/` when reading or editing code.
+**Working directory rule:** work directly at the repo root — code lives in `app/`, tests in `tests/`, scripts in `scripts/`. (A `.worktrees/` dev worktree may optionally be used for isolation, but is not required.)
 
 ---
 
@@ -155,7 +154,7 @@ Contents: `models/` (HF cache), `jobs/` (output), `settings.json`, `glossary.txt
 
 ---
 
-## Dev commands (from `.worktrees/vitranscript-impl/`)
+## Dev commands (from repo root)
 
 ```bash
 uv sync                                          # install / update deps
