@@ -55,7 +55,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py`, 83 test) | 🟢 | 82 passed, 1 deselected |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py` + `tests/test_server_live.py`, 92 test) | 🟢 | 91 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), chặn POST cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
@@ -115,7 +115,7 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py`, 83 test) | 🟢 | 82 passed, 1 deselected |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py` + `tests/test_server_live.py`, 92 test) | 🟢 | 91 passed, 1 deselected |
 | 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), chặn POST cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
