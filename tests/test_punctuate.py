@@ -480,7 +480,9 @@ def test_meta_exposes_punctuation_model(monkeypatch):
     monkeypatch.setattr(config, "model_is_downloaded", lambda key: False)
     monkeypatch.setattr(config, "load_settings", lambda: {"punctuate": True})
     monkeypatch.setattr(config, "load_glossary_text", lambda: "")
-    payload = TestClient(server.app).get("/api/meta").json()["punctuation"]
+    payload = TestClient(server.app, base_url="http://127.0.0.1").get(
+        "/api/meta"
+    ).json()["punctuation"]
     assert payload == {"downloaded": True, "size": "~110 MB", "license": "CC-BY-SA-4.0"}
 
 
@@ -503,7 +505,7 @@ def test_create_job_passes_and_persists_punctuate(monkeypatch, tmp_path):
     monkeypatch.setattr(server.threading, "Thread", FakeThread)
     server.JOBS.clear()
     try:
-        response = TestClient(server.app).post(
+        response = TestClient(server.app, base_url="http://127.0.0.1").post(
             "/api/jobs",
             files={"file": ("hop.wav", b"RIFF", "audio/wav")},
             data={"model": "phowhisper-small", "punctuate": "false"},
@@ -513,7 +515,7 @@ def test_create_job_passes_and_persists_punctuate(monkeypatch, tmp_path):
         assert config.load_settings()["punctuate"] is False
 
         server.JOBS.clear()
-        response = TestClient(server.app).post(
+        response = TestClient(server.app, base_url="http://127.0.0.1").post(
             "/api/jobs",
             files={"file": ("hop.wav", b"RIFF", "audio/wav")},
             data={"model": "phowhisper-small"},
@@ -527,7 +529,7 @@ def test_create_job_passes_and_persists_punctuate(monkeypatch, tmp_path):
 def test_run_job_appends_punctuation_warning_to_existing_note(monkeypatch, tmp_path):
     from app import config, pipeline, server
 
-    job_id = "punctwarn001"
+    job_id = "bb0000000001"  # job_id thật luôn là uuid hex 12 ký tự
     monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
     server.JOBS[job_id] = {"status": "running", "note": "Đã tắt diarization."}
     monkeypatch.setattr(

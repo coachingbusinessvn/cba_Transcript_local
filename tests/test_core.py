@@ -343,7 +343,7 @@ def test_export_srt_with_speaker_override(monkeypatch, tmp_path):
     from app import config, server
 
     monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
-    job_id = "spkoverride01"
+    job_id = "abc123def456"  # job_id thật luôn là uuid hex 12 ký tự
     (tmp_path / "jobs" / job_id).mkdir(parents=True)
     server.JOBS[job_id] = {
         "status": "done", "filename": "hop.mp3",
@@ -353,7 +353,9 @@ def test_export_srt_with_speaker_override(monkeypatch, tmp_path):
         ], "duration": 2.0, "num_speakers": 2, "extracted_audio": None, "model": "x"},
     }
     try:
-        c = TestClient(server.app)
+        # base_url loopback: middleware security_guard từ chối Host không phải
+        # 127.0.0.1/localhost (mặc định của TestClient là "testserver" → 403).
+        c = TestClient(server.app, base_url="http://127.0.0.1")
         r = c.post(f"/api/jobs/{job_id}/export",
                    json={"format": "srt", "speakers": {"1": 0}})
         assert r.status_code == 200
@@ -409,15 +411,17 @@ def test_finished_job_is_evicted_from_memory(monkeypatch, tmp_path):
         "punctuation": {"requested": False, "applied": False, "warning": None},
     })
     server.JOBS.clear()
-    server.JOBS["j1"] = {"status": "running", "filename": "a.wav", "model": "phowhisper-small"}
+    server.JOBS["aa0000000001"] = {
+        "status": "running", "filename": "a.wav", "model": "phowhisper-small",
+    }
 
-    server._run_job("j1", tmp_path / "a.wav", {
+    server._run_job("aa0000000001", tmp_path / "a.wav", {
         "model": "phowhisper-small", "language": "vi", "diarize": False,
         "punctuate": False, "num_speakers": 0, "glossary": "",
     })
 
-    assert "j1" not in server.JOBS          # không giữ transcript trong RAM
-    assert server._get_job("j1")["status"] == "done"   # vẫn đọc được từ đĩa
+    assert "aa0000000001" not in server.JOBS          # không giữ transcript trong RAM
+    assert server._get_job("aa0000000001")["status"] == "done"   # vẫn đọc được từ đĩa
 
 
 def test_failed_job_is_also_evicted_from_memory(monkeypatch, tmp_path):
@@ -430,16 +434,18 @@ def test_failed_job_is_also_evicted_from_memory(monkeypatch, tmp_path):
 
     monkeypatch.setattr(pipeline, "run", boom)
     server.JOBS.clear()
-    server.JOBS["j2"] = {"status": "running", "filename": "b.wav", "model": "phowhisper-small"}
+    server.JOBS["aa0000000002"] = {
+        "status": "running", "filename": "b.wav", "model": "phowhisper-small",
+    }
 
-    server._run_job("j2", tmp_path / "b.wav", {
+    server._run_job("aa0000000002", tmp_path / "b.wav", {
         "model": "phowhisper-small", "language": "vi", "diarize": False,
         "punctuate": False, "num_speakers": 0, "glossary": "",
     })
 
     # Quan trọng: job lỗi cũng phải rời RAM, nếu không nó chặn mọi job sau bằng 409
-    assert "j2" not in server.JOBS
-    assert server._get_job("j2")["status"] == "error"
+    assert "aa0000000002" not in server.JOBS
+    assert server._get_job("aa0000000002")["status"] == "error"
 
 
 def test_create_job_releases_reservation_when_thread_start_fails(monkeypatch, tmp_path):
@@ -461,7 +467,7 @@ def test_create_job_releases_reservation_when_thread_start_fails(monkeypatch, tm
     monkeypatch.setattr(server.threading, "Thread", ExplodingThread)
     server.JOBS.clear()
     try:
-        c = TestClient(server.app)
+        c = TestClient(server.app, base_url="http://127.0.0.1")
         with pytest.raises(RuntimeError, match="can't start new thread"):
             c.post(
                 "/api/jobs",
@@ -489,16 +495,18 @@ def test_finished_job_stays_in_ram_when_disk_write_fails(monkeypatch, tmp_path):
     })
     monkeypatch.setattr(server, "_save_job", lambda job_id, job: False)
     server.JOBS.clear()
-    server.JOBS["j3"] = {"status": "running", "filename": "a.wav", "model": "phowhisper-small"}
+    server.JOBS["aa0000000003"] = {
+        "status": "running", "filename": "a.wav", "model": "phowhisper-small",
+    }
 
-    server._run_job("j3", tmp_path / "a.wav", {
+    server._run_job("aa0000000003", tmp_path / "a.wav", {
         "model": "phowhisper-small", "language": "vi", "diarize": False,
         "punctuate": False, "num_speakers": 0, "glossary": "",
     })
 
-    assert "j3" in server.JOBS
-    assert server.JOBS["j3"]["status"] == "done"       # không kẹt ở "running"
-    assert server.JOBS["j3"]["result"]["sentences"]    # kết quả vẫn đọc được qua RAM
+    assert "aa0000000003" in server.JOBS
+    assert server.JOBS["aa0000000003"]["status"] == "done"       # không kẹt ở "running"
+    assert server.JOBS["aa0000000003"]["result"]["sentences"]    # kết quả vẫn đọc được qua RAM
 
 
 def test_failed_job_stays_in_ram_when_disk_write_fails(monkeypatch, tmp_path):
@@ -513,15 +521,17 @@ def test_failed_job_stays_in_ram_when_disk_write_fails(monkeypatch, tmp_path):
     monkeypatch.setattr(pipeline, "run", boom)
     monkeypatch.setattr(server, "_save_job", lambda job_id, job: False)
     server.JOBS.clear()
-    server.JOBS["j4"] = {"status": "running", "filename": "b.wav", "model": "phowhisper-small"}
+    server.JOBS["aa0000000004"] = {
+        "status": "running", "filename": "b.wav", "model": "phowhisper-small",
+    }
 
-    server._run_job("j4", tmp_path / "b.wav", {
+    server._run_job("aa0000000004", tmp_path / "b.wav", {
         "model": "phowhisper-small", "language": "vi", "diarize": False,
         "punctuate": False, "num_speakers": 0, "glossary": "",
     })
 
-    assert "j4" in server.JOBS
-    assert server.JOBS["j4"]["status"] == "error"      # không kẹt ở "running"
+    assert "aa0000000004" in server.JOBS
+    assert server.JOBS["aa0000000004"]["status"] == "error"      # không kẹt ở "running"
 
 
 def test_sha256_file_matches_hashlib(tmp_path):
@@ -614,3 +624,179 @@ def test_load_model_frees_old_model_before_building_new(monkeypatch):
         assert list(tr._MODEL_CACHE) == ["phowhisper-small"]
     finally:
         tr._MODEL_CACHE.clear()
+
+
+def test_non_loopback_host_rejected():
+    """DNS rebinding: domain attacker resolve về 127.0.0.1 nhưng giữ Host gốc → 403."""
+    from fastapi.testclient import TestClient
+
+    from app import server
+
+    c = TestClient(server.app)  # host mặc định "testserver" — không phải loopback
+    assert c.get("/").status_code == 403
+    ok = TestClient(server.app, base_url="http://127.0.0.1")
+    assert ok.get("/").status_code == 200
+    ok_local = TestClient(server.app, base_url="http://localhost:8756")
+    assert ok_local.get("/").status_code == 200
+
+
+def test_security_headers_present():
+    from fastapi.testclient import TestClient
+
+    from app import server
+
+    r = TestClient(server.app, base_url="http://127.0.0.1").get("/")
+    assert r.headers["X-Content-Type-Options"] == "nosniff"
+    assert r.headers["X-Frame-Options"] == "DENY"
+    assert "frame-ancestors 'none'" in r.headers["Content-Security-Policy"]
+
+
+def test_cross_site_write_blocked():
+    """CSRF: POST mang Origin/Sec-Fetch-Site của site khác bị chặn trước khi tới route."""
+    from fastapi.testclient import TestClient
+
+    from app import server
+
+    c = TestClient(server.app, base_url="http://127.0.0.1")
+    r = c.post("/api/jobs", headers={"origin": "https://evil.example"})
+    assert r.status_code == 403
+    r = c.post("/api/jobs", headers={"sec-fetch-site": "cross-site"})
+    assert r.status_code == 403
+    # Same-origin đi qua guard → request tới route và lỗi validate như bình thường
+    r = c.post("/api/jobs", headers={"origin": "http://127.0.0.1:8756"})
+    assert r.status_code == 422  # thiếu file/model — nghĩa là đã qua được guard
+
+
+def test_job_id_path_traversal_rejected(monkeypatch, tmp_path):
+    """job_id không đúng uuid-hex-12 (vd '..') bị 404 — không chạm đường dẫn ngoài jobs/."""
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from app import config, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    # status.json ngoài jobs/ — nếu traversal còn tồn tại, request sẽ đọc file này
+    (tmp_path / "status.json").write_text(json.dumps({"status": "done"}), encoding="utf-8")
+
+    c = TestClient(server.app, base_url="http://127.0.0.1")
+    assert c.get("/api/jobs/%2E%2E").status_code == 404
+    assert c.get("/api/jobs/not-a-job-id").status_code == 404
+    assert c.post("/api/jobs/%2E%2E/export", json={"format": "srt"}).status_code == 404
+
+
+def test_xlsx_stores_equals_text_as_string(tmp_path):
+    """Text/tên bắt đầu '=' không được ghi thành formula (Excel formula injection)."""
+    from openpyxl import load_workbook
+
+    from app.export import to_xlsx
+    from app.segment import Sentence
+
+    evil = "=cmd|'/c calc'!A0"
+    sents = [Sentence(0.0, 1.0, evil, 0)]
+    out = to_xlsx(sents, tmp_path / "a.xlsx", {"0": evil})
+
+    wb = load_workbook(out)
+    text_cells = [c for row in wb.active.iter_rows(min_row=2) for c in row if c.value == evil]
+    assert len(text_cells) == 2                     # cột người nói + cột nội dung
+    assert all(c.data_type == "s" for c in text_cells)  # string, không phải formula
+
+
+def test_upload_size_cap_and_num_speakers_clamp(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app import config, media, pipeline, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(media, "duration_seconds", lambda p: 1.0)
+    monkeypatch.setattr(server, "_MAX_UPLOAD_BYTES", 4)
+
+    class SyncThread:
+        def __init__(self, target, args, daemon):
+            self.target, self.args = target, args
+
+        def start(self):
+            self.target(*self.args)
+
+    monkeypatch.setattr(server.threading, "Thread", SyncThread)
+    captured = {}
+    monkeypatch.setattr(pipeline, "run", lambda *a, **k: captured.update(k) or {
+        "sentences": [{"start": 0.0, "end": 1.0, "text": "xin chào", "speaker": None}],
+        "duration": 1.0, "num_speakers": 0, "extracted_audio": None, "model": "x",
+        "punctuation": {"requested": False, "applied": False, "warning": None},
+    })
+    server.JOBS.clear()
+    try:
+        c = TestClient(server.app, base_url="http://127.0.0.1")
+        # Upload vượt cap → 413 + file ghi dở bị xóa
+        r = c.post("/api/jobs",
+                   files={"file": ("hop.wav", b"RIFFx", "audio/wav")},
+                   data={"model": "phowhisper-small"})
+        assert r.status_code == 413
+        assert not list(tmp_path.rglob("input.wav"))
+        # num_speakers khổng lồ bị clamp về _MAX_SPEAKERS trước khi vào pipeline
+        monkeypatch.setattr(server, "_MAX_UPLOAD_BYTES", 1 << 30)
+        r = c.post("/api/jobs",
+                   files={"file": ("hop.wav", b"RIFF", "audio/wav")},
+                   data={"model": "phowhisper-small", "num_speakers": "9999"})
+        assert r.status_code == 200
+        assert captured["num_speakers"] == server._MAX_SPEAKERS
+    finally:
+        server.JOBS.clear()
+
+
+def test_download_audio_rejects_path_outside_job_dir(monkeypatch, tmp_path):
+    """extracted_audio trỏ ra ngoài job dir (status.json bị sửa) → 404, không đọc file lạ."""
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from app import config, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    job_id = "aabbccddee01"
+    jd = tmp_path / "jobs" / job_id
+    jd.mkdir(parents=True)
+    outside = tmp_path / "secret.m4a"
+    outside.write_bytes(b"secret")
+    (jd / "status.json").write_text(json.dumps({
+        "status": "done", "filename": "x.mp4", "model": "x",
+        "result": {"sentences": [], "extracted_audio": str(outside)},
+    }), encoding="utf-8")
+
+    c = TestClient(server.app, base_url="http://127.0.0.1")
+    assert c.get(f"/api/jobs/{job_id}/audio").status_code == 404
+
+    # File hợp lệ nằm trong job dir vẫn tải được bình thường
+    inside = jd / "input.m4a"
+    inside.write_bytes(b"ok")
+    (jd / "status.json").write_text(json.dumps({
+        "status": "done", "filename": "x.mp4", "model": "x",
+        "result": {"sentences": [], "extracted_audio": str(inside)},
+    }), encoding="utf-8")
+    r = c.get(f"/api/jobs/{job_id}/audio")
+    assert r.status_code == 200 and r.content == b"ok"
+
+
+def test_export_tolerates_extra_keys_in_sentences(monkeypatch, tmp_path):
+    """status.json có key lạ trong sentence không được làm export nổ 500."""
+    import json
+
+    from fastapi.testclient import TestClient
+
+    from app import config, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    job_id = "aabbccddee02"
+    jd = tmp_path / "jobs" / job_id
+    jd.mkdir(parents=True)
+    (jd / "status.json").write_text(json.dumps({
+        "status": "done", "filename": "x.mp3", "model": "x",
+        "result": {"sentences": [
+            {"start": 0.0, "end": 1.0, "text": "a", "speaker": 0, "bogus": 1},
+        ], "duration": 1.0, "num_speakers": 1, "extracted_audio": None, "model": "x"},
+    }), encoding="utf-8")
+
+    r = TestClient(server.app, base_url="http://127.0.0.1").post(
+        f"/api/jobs/{job_id}/export", json={"format": "txt"})
+    assert r.status_code == 200

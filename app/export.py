@@ -79,6 +79,12 @@ def to_xlsx(sentences: list[Sentence], out_path: Path,
             row.append(speaker_name(s.speaker, names))
         row.append(s.text)
         ws.append(row)
+        # openpyxl coi chuỗi bắt đầu bằng "=" là công thức: tên người nói hay
+        # nội dung transcript do client gửi có thể bắt đầu bằng "=" và chạy như
+        # formula khi mở bằng Excel (formula injection) → ép cell về kiểu string.
+        for cell in ws[ws.max_row]:
+            if cell.data_type == "f":
+                cell.data_type = "s"
 
     widths = [6, 11, 11] + ([16] if has_speaker else []) + [90]
     for col, w in zip("ABCDE", widths, strict=False):

@@ -55,8 +55,8 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
-| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 75 test) | 🟢 | 74 passed, 1 deselected |
+| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), chặn POST cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
@@ -77,8 +77,9 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 - `requires-python = ">=3.10,<3.13"` — KHÔNG kéo PyTorch/TensorFlow
 - Máy mục tiêu: macOS arm64, macOS x86_64, Windows x64 CPU-only
+- `onnxruntime<1.24` — 1.23.x là bản cuối còn wheel macOS x86_64 (1.24 không có wheel macOS, 1.25+ chỉ arm64); nâng version sẽ phá install trên Intel Mac
 - v1: **1 job tại một thời điểm** — server 409 nếu có job đang chạy
-- Server chỉ bind `127.0.0.1`
+- Server chỉ bind `127.0.0.1` + middleware `_security_guard`: Host phải là loopback (chống DNS rebinding), request ghi từ Origin/`Sec-Fetch-Site` cross-site bị 403 (chống CSRF); `job_id` phải là uuid-hex-12 (chống path traversal)
 - Text UI: tiếng Việt; `.bat` viết không dấu (tránh lỗi codepage Windows)
 - URL diarization: `"speaker-recongition-models"` — lỗi chính tả là CỐ Ý (upstream), không sửa
 
@@ -114,8 +115,8 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
-| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 75 test) | 🟢 | 74 passed, 1 deselected |
+| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), chặn POST cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |

@@ -76,7 +76,8 @@ docs/
 |---|---|
 | No heavy ML frameworks | NO dependency that pulls PyTorch or TensorFlow |
 | Single job | v1: one job at a time — server returns HTTP 409 if a job is running |
-| Localhost only | Server binds `127.0.0.1` only — never `0.0.0.0` |
+| Localhost only | Server binds `127.0.0.1` only — never `0.0.0.0`. Middleware `_security_guard`: Host must be loopback (anti-DNS-rebinding), write requests with cross-site Origin/`Sec-Fetch-Site` get 403 (anti-CSRF); `job_id` must be uuid-hex-12 (anti-path-traversal) |
+| onnxruntime `<1.24` | 1.23.x is the last release with macOS x86_64 wheels (1.24 has no macOS wheel, 1.25+ is arm64-only) — bumping breaks install on Intel Macs |
 | Intentional typo | `"speaker-recongition-models"` in diarization URL is an upstream typo — do NOT "fix" it |
 | Windows `.bat` encoding | No Vietnamese diacritics in `.bat` scripts (Windows codepage issues) |
 | `names` dict keys | Always strings: `"0"`, `"1"`, … — consistent across export / server / UI |
@@ -104,8 +105,8 @@ docs/
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
-| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 75 test) | 🟢 | 74 passed, 1 deselected |
+| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), chặn POST cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |

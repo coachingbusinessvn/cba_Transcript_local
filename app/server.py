@@ -1,18 +1,22 @@
 """Web server local: FastAPI + job chạy nền trong thread. Chạy: python -m app.server"""
 import json
 import logging
+import os
+import re
 import socket
 import threading
 import time
 import traceback
 import uuid
 import webbrowser
+from contextlib import suppress
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
+from urllib.parse import urlparse
 
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
 
 from . import checkpoint, config, export, media, pipeline, segment
@@ -44,6 +48,50 @@ _FAVICON = (
 # Chính sách file dài — chống OOM trên máy CPU yếu (xem docs/04-plan-long-audio.md)
 _MAX_INPUT_SECONDS = 14_400  # 4 giờ: từ chối, khuyên cắt file
 _MAX_DIARIZE_SECONDS = 7_200  # 2 giờ: tự tắt diarization
+# Đủ cho video 4 giờ bitrate cao (~4,4 Mbps); chặn upload stream vô hạn làm đầy đĩa.
+_MAX_UPLOAD_BYTES = 8 * 1024**3
+_MAX_JSON_BODY = 4 * 1024**2  # export body chỉ chứa names/speakers — vài chục KB là đủ
+_MAX_GLOSSARY_CHARS = 100_000
+_MAX_FILENAME_CHARS = 200
+_MAX_SPEAKERS = 20  # khớp max của UI; chặn số cực lớn đẩy vào thư viện clustering native
+_JOB_ID_RE = re.compile(r"[0-9a-f]{12}")
+_LANGUAGE_RE = re.compile(r"[a-z]{2,3}|auto")
+_ALLOWED_HOSTS = {"127.0.0.1", "::1", "0.0.0.0", "localhost"}
+# Ký tự cấm trong tên file Windows + ký tự điều khiển — filename do client gửi
+# đi vào tên file export nên phải lọc trước khi ghép vào đường dẫn.
+_UNSAFE_STEM_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
+_SENTENCE_FIELDS = frozenset(("start", "end", "text", "speaker"))
+
+
+@app.middleware("http")
+async def _security_guard(request: Request, call_next):
+    # Host phải là loopback — chặn DNS rebinding: domain của kẻ tấn công resolve
+    # về 127.0.0.1 vẫn bị từ chối vì trình duyệt giữ nguyên Host của domain đó.
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").rstrip(".")
+    if host not in _ALLOWED_HOSTS:
+        return Response("Chỉ chấp nhận truy cập từ máy local.", status_code=403)
+    # Request ghi (POST…) từ website khác bị chặn qua Origin/Sec-Fetch-Site —
+    # chống CSRF: trang độc không thể sai khiến trình duyệt upload file hay gọi
+    # export. Client không gửi các header này (curl, script tự viết) vẫn chạy.
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("origin")
+        if origin and origin != "null":
+            if (urlparse(origin).hostname or "").rstrip(".") not in _ALLOWED_HOSTS:
+                return Response("Origin không hợp lệ.", status_code=403)
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            return Response("Request cross-site bị chặn.", status_code=403)
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+        "connect-src 'self'; img-src 'self' data:; object-src 'none'; "
+        "base-uri 'none'; frame-ancestors 'none'"
+    )
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"  # transcript không nằm trong disk cache
+    return response
 
 
 def _long_audio_policy(duration: float | None, diarize: bool) -> tuple[bool, str | None]:
@@ -87,8 +135,19 @@ def _clean_names(raw) -> dict[str, str]:
     return {str(k): v for k, v in raw.items() if isinstance(v, str)}
 
 
+def _job_dir(job_id: str) -> Path:
+    """Thư mục của job — chỉ chấp nhận id đúng định dạng uuid-hex-12 do server tự sinh.
+
+    job_id đi từ URL path vào đường dẫn file: giá trị như ".." hay "a\\b" (trên
+    Windows) sẽ thoát ra ngoài jobs/ nếu không lọc → path traversal đọc/ghi.
+    """
+    if not _JOB_ID_RE.fullmatch(job_id):
+        raise HTTPException(404, "Không tìm thấy job")
+    return config.jobs_dir() / job_id
+
+
 def _status_path(job_id: str) -> Path:
-    return config.jobs_dir() / job_id / "status.json"
+    return _job_dir(job_id) / "status.json"
 
 
 def _save_job(job_id: str, job: dict) -> bool:
@@ -101,8 +160,12 @@ def _save_job(job_id: str, job: dict) -> bool:
     path = _status_path(job_id)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        # Không ghi result khổng lồ quá thường xuyên — luôn ghi khi done/error
-        path.write_text(json.dumps(job, ensure_ascii=False, default=str), encoding="utf-8")
+        # Không ghi result khổng lồ quá thường xuyên — luôn ghi khi done/error.
+        # Ghi qua file .tmp rồi rename: nguyên tử, tránh status.json bị cắt dở
+        # nếu process chết giữa chừng (reader cũng không đọc được file ghi dở).
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(json.dumps(job, ensure_ascii=False, default=str), encoding="utf-8")
+        os.replace(tmp, path)
         return True
     except OSError as e:
         log.warning("Không ghi được status job %s: %s", job_id, e)
@@ -110,11 +173,11 @@ def _save_job(job_id: str, job: dict) -> bool:
 
 
 def _load_job_from_disk(job_id: str) -> dict | None:
-    path = _status_path(job_id)
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(_status_path(job_id).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    return data if isinstance(data, dict) else None
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -229,9 +292,24 @@ async def create_job(
 ):
     if model not in config.MODEL_REGISTRY:
         raise HTTPException(400, "Model không hợp lệ")
+    if not _LANGUAGE_RE.fullmatch(language.lower()):
+        raise HTTPException(400, "Ngôn ngữ không hợp lệ")
+    if len(glossary) > _MAX_GLOSSARY_CHARS:
+        raise HTTPException(400, "Glossary quá dài (tối đa 100 KB)")
+    num_speakers = max(0, min(_MAX_SPEAKERS, num_speakers))
     name = Path(file.filename or "input")
     if not media.is_supported(name):
         raise HTTPException(400, f"Định dạng {name.suffix} chưa hỗ trợ")
+    # Client khai báo sẵn kích thước (Content-Length part) thì từ chối sớm,
+    # khỏi ghi hàng GB rồi mới báo lỗi. Trường hợp không khai báo vẫn bị chặn
+    # bởi ngưỡng đếm byte trong vòng ghi bên dưới.
+    declared = getattr(file, "size", None)
+    if declared is not None and declared > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            413,
+            f"File lớn hơn {_MAX_UPLOAD_BYTES // (1 << 30)} GB — "
+            "hãy nén hoặc cắt file rồi thử lại.",
+        )
 
     job_id = uuid.uuid4().hex[:12]
     job = {
@@ -239,7 +317,7 @@ async def create_job(
         "stage": "queued",
         "percent": 0,
         "message": "Đang chuẩn bị…",
-        "filename": name.name,
+        "filename": name.name[:_MAX_FILENAME_CHARS],
         "model": model,
         "punctuate": punctuate,
     }
@@ -256,13 +334,22 @@ async def create_job(
 
     # Nếu chuẩn bị file thất bại, phải nhả chỗ đã đặt — nếu không job "running"
     # sẽ kẹt vĩnh viễn và chặn mọi job sau.
+    input_path: Path | None = None
     try:
-        job_dir = config.jobs_dir() / job_id
+        job_dir = _job_dir(job_id)
         # _save_job ở trên đã tạo thư mục (ghi status.json) — exist_ok tránh FileExistsError 500
         job_dir.mkdir(parents=True, exist_ok=True)
         input_path = job_dir / ("input" + name.suffix.lower())
+        written = 0
         with input_path.open("wb") as f:
             while chunk := await file.read(1 << 20):
+                written += len(chunk)
+                if written > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        413,
+                        f"File lớn hơn {_MAX_UPLOAD_BYTES // (1 << 30)} GB — "
+                        "hãy nén hoặc cắt file rồi thử lại.",
+                    )
                 f.write(chunk)
 
         duration = media.duration_seconds(input_path)
@@ -295,6 +382,11 @@ async def create_job(
     except Exception:
         with _JOBS_LOCK:
             JOBS.pop(job_id, None)
+        # File input ghi dở (upload quá lớn, file quá dài, thread không start được)
+        # không còn job nào dùng — xóa để không để lại hàng GB mồ côi trên đĩa.
+        if input_path is not None:
+            with suppress(OSError):
+                input_path.unlink()
         raise
     return {"job_id": job_id}
 
@@ -355,8 +447,18 @@ def job_status(job_id: str):
     return _get_job(job_id)
 
 
+def _safe_stem(filename: str) -> str:
+    """Tên file export từ filename do client gửi: lọc ký tự cấm trên Windows
+    (\\ / : * ? " < > |) và ký tự điều khiển, giới hạn độ dài để không vượt
+    giới hạn tên file của OS."""
+    stem = _UNSAFE_STEM_CHARS.sub("_", Path(filename).stem)[:120].strip(" .")
+    return stem or "transcript"
+
+
 @app.post("/api/jobs/{job_id}/export")
-def export_job(job_id: str, body: dict):
+def export_job(job_id: str, body: dict, request: Request):
+    if int(request.headers.get("content-length") or 0) > _MAX_JSON_BODY:
+        raise HTTPException(413, "Payload quá lớn")
     job = _get_job(job_id)
     if not (job.get("result") or {}).get("sentences"):
         raise HTTPException(409, "Job chưa xong")
@@ -364,10 +466,16 @@ def export_job(job_id: str, body: dict):
     if fmt not in _EXPORTERS:
         raise HTTPException(400, "Định dạng không hợp lệ")
     names = _clean_names(body.get("names"))
-    sentences = [Sentence(**s) for s in job["result"]["sentences"]]
+    # Chỉ chuyển đúng các field của Sentence — status.json đọc từ đĩa có thể
+    # chứa key lạ (hoặc entry không phải dict) khiến **-unpack nổ TypeError → 500.
+    sentences = [
+        Sentence(**{k: v for k, v in s.items() if k in _SENTENCE_FIELDS})
+        for s in job["result"]["sentences"]
+        if isinstance(s, dict)
+    ]
     _apply_speaker_overrides(sentences, body.get("speakers"))
-    stem = Path(job["filename"]).stem
-    out = config.jobs_dir() / job_id / f"{stem}.{fmt}"
+    stem = _safe_stem(job["filename"])
+    out = _job_dir(job_id) / f"{stem}.{fmt}"
     if fmt == "docx":
         export.to_docx(
             sentences,
@@ -388,12 +496,14 @@ def export_job(job_id: str, body: dict):
 def download_audio(job_id: str):
     job = _get_job(job_id)
     extracted = (job.get("result") or {}).get("extracted_audio")
-    if not extracted or not Path(extracted).exists():
+    p = Path(extracted).resolve() if isinstance(extracted, str) and extracted else None
+    # Đường dẫn đọc từ status.json phải nằm trong thư mục job — nếu file đó bị
+    # sửa/hỏng và trỏ ra ngoài thì từ chối, tránh đọc file bất kỳ trên đĩa.
+    if p is None or not p.is_file() or not p.is_relative_to(_job_dir(job_id).resolve()):
         raise HTTPException(
             404, "Không có file audio tách riêng (đầu vào không phải video)"
         )
-    p = Path(extracted)
-    return FileResponse(p, filename=Path(job["filename"]).stem + p.suffix)
+    return FileResponse(p, filename=_safe_stem(job["filename"]) + p.suffix)
 
 
 def _free_port(start: int = 8756) -> int:

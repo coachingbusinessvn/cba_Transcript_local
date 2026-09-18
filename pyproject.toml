@@ -17,7 +17,9 @@ dependencies = [
     "static-ffmpeg>=2.7",
     "huggingface-hub>=0.23",
     "numpy>=1.26",
-    "onnxruntime>=1.20,<2",
+    # 1.24 không có wheel macOS; từ 1.25 bỏ x86_64 — 1.23.x là bản cuối còn
+    # wheel cho mọi nền tảng mục tiêu (mac arm64 + x86_64, win x64, linux).
+    "onnxruntime>=1.20,<1.24",
     "tokenizers>=0.20,<1",
 ]
 
