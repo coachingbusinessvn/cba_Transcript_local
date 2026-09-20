@@ -13,7 +13,6 @@ from contextlib import suppress
 from dataclasses import asdict
 from pathlib import Path
 from typing import Annotated
-from urllib.parse import urlparse
 
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -62,32 +61,20 @@ _ALLOWED_HOSTS = {"127.0.0.1", "::1", "0.0.0.0", "localhost"}
 _UNSAFE_STEM_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
 # Tên thiết bị Windows: cấm đặt tên file kể cả khi kèm đuôi mở rộng ("CON.docx"
 # mở device thay vì tạo file). POSIX không cấm nên chỉ lộ trên Windows thật.
+# Dạng superscript (U+00B9/B2/B3): Windows map ¹²³ → 1/2/3 nên COM¹ ≡ COM1.
 _WIN_DEVICE_STEMS = frozenset(
     ["CON", "PRN", "AUX", "NUL"]
     + [f"COM{i}" for i in range(1, 10)]
     + [f"LPT{i}" for i in range(1, 10)]
+    + ["COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³"]
 )
 _SENTENCE_FIELDS = frozenset(("start", "end", "text", "speaker"))
 
 
-@app.middleware("http")
-async def _security_guard(request: Request, call_next):
-    # Host phải là loopback — chặn DNS rebinding: domain của kẻ tấn công resolve
-    # về 127.0.0.1 vẫn bị từ chối vì trình duyệt giữ nguyên Host của domain đó.
-    host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").rstrip(".")
-    if host not in _ALLOWED_HOSTS:
-        return Response("Chỉ chấp nhận truy cập từ máy local.", status_code=403)
-    # Request ghi (POST…) từ website khác bị chặn qua Origin/Sec-Fetch-Site —
-    # chống CSRF: trang độc không thể sai khiến trình duyệt upload file hay gọi
-    # export. Client không gửi các header này (curl, script tự viết) vẫn chạy.
-    if request.method not in ("GET", "HEAD", "OPTIONS"):
-        origin = request.headers.get("origin")
-        if origin and origin != "null":
-            if (urlparse(origin).hostname or "").rstrip(".") not in _ALLOWED_HOSTS:
-                return Response("Origin không hợp lệ.", status_code=403)
-        if request.headers.get("sec-fetch-site") == "cross-site":
-            return Response("Request cross-site bị chặn.", status_code=403)
-    response = await call_next(request)
+def _security_headers(response: Response, path: str) -> Response:
+    """Gắn security headers lên response. Phải gọi cho CẢ response từ chối sớm
+    của middleware (403/411/413) lẫn response route trả về — nếu chỉ gắn sau
+    call_next thì các trang lỗi sớm thiếu nosniff/CSP/no-store."""
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -96,9 +83,56 @@ async def _security_guard(request: Request, call_next):
         "connect-src 'self'; img-src 'self' data:; object-src 'none'; "
         "base-uri 'none'; frame-ancestors 'none'"
     )
-    if request.url.path.startswith("/api/"):
+    if path.startswith("/api/"):
         response.headers["Cache-Control"] = "no-store"  # transcript không nằm trong disk cache
     return response
+
+
+@app.middleware("http")
+async def _security_guard(request: Request, call_next):
+    def deny(message: str, status: int) -> Response:
+        return _security_headers(Response(message, status_code=status), request.url.path)
+
+    # Host phải là loopback — chặn DNS rebinding: domain của kẻ tấn công resolve
+    # về 127.0.0.1 vẫn bị từ chối vì trình duyệt giữ nguyên Host của domain đó.
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]").rstrip(".")
+    if host not in _ALLOWED_HOSTS:
+        return deny("Chỉ chấp nhận truy cập từ máy local.", 403)
+    # Request ghi (POST…) từ website khác bị chặn — chống CSRF: trang độc không
+    # thể sai khiến trình duyệt upload file hay gọi export. Origin phải trùng
+    # ĐÚNG origin của server (scheme+host+port): UI được phục vụ same-origin
+    # nên request thật luôn khớp. Origin "null" (sandboxed iframe, file://,
+    # redirect), origin không parse được, hay loopback khác port (trang độc
+    # trên :9000 ghi sang :8756 vẫn là cross-origin theo browser) đều bị từ
+    # chối. Client không gửi Origin (curl, script tự viết) vẫn chạy.
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origin = request.headers.get("origin")
+        if origin is not None and origin.rstrip("/") != str(request.base_url).rstrip("/"):
+            return deny("Origin không hợp lệ.", 403)
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            return deny("Request cross-site bị chặn.", 403)
+        # Cap upload TRƯỚC khi Starlette parse multipart: request chunked không
+        # Content-Length trước đây được spool hết vào SpooledTemporaryFile (đĩa)
+        # trước khi endpoint chạy → lỗ hổng làm đầy đĩa. Browser/curl/httpx
+        # luôn gửi Content-Length trên upload nên 411 không ảnh hưởng client
+        # thật. Check trong create_job vẫn giữ nguyên (defense in depth — nó
+        # còn bắt cả Content-Length khai thiếu so với body thực).
+        if request.method in ("POST", "PUT", "PATCH") and request.url.path == "/api/jobs":
+            content_length = request.headers.get("content-length")
+            if content_length is None:
+                return deny("Thiếu Content-Length.", 411)
+            try:
+                oversized = int(content_length) > _MAX_UPLOAD_BYTES
+            except ValueError:
+                oversized = True  # Content-Length không phải số → coi như quá lớn
+            if oversized:
+                return deny(
+                    f"File lớn hơn {_MAX_UPLOAD_BYTES // (1 << 30)} GB — "
+                    "hãy nén hoặc cắt file rồi thử lại.",
+                    413,
+                )
+    response = await call_next(request)
+    return _security_headers(response, request.url.path)
 
 
 def _long_audio_policy(duration: float | None, diarize: bool) -> tuple[bool, str | None]:

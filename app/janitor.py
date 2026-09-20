@@ -40,6 +40,33 @@ def _tree_size(path: Path) -> int:
     return total
 
 
+def _has_nested_link_or_reparse(path: Path) -> bool:
+    """True nếu trong cây job dir có symlink/junction/reparse point lồng nhau.
+
+    Check trong _list_valid_jobs chỉ nhìn entry TOP-LEVEL của jobs/; một job
+    dir hợp lệ vẫn có thể chứa junction Windows (hoặc symlink) ở sâu bên
+    trong — rmtree trên Python <3.12 đi theo junction và xóa cả target ngoài
+    jobs/. Conservative: thấy entry lạ, hoặc entry không đọc được, cũng tính
+    là lạ → giữ nguyên job dir, không xóa.
+    """
+    try:
+        for root, dirs, files in os.walk(path, followlinks=False):
+            # Junction/symlink tới thư mục nằm trong dirs (walk không đi theo
+            # chúng vì followlinks=False); symlink tới file nằm trong files.
+            for name in (*dirs, *files):
+                entry = Path(root) / name
+                try:
+                    if entry.is_symlink() or getattr(
+                        entry.lstat(), "st_reparse_tag", 0
+                    ):
+                        return True
+                except OSError:
+                    return True  # entry biến mất/không đọc được — giữ an toàn
+    except OSError:
+        return True
+    return False
+
+
 def _read_status(path: Path) -> dict | None:
     """status.json hợp lệ = JSON dict; hỏng/không phải dict/không đọc được → None."""
     try:
@@ -101,8 +128,14 @@ def cleanup_jobs_dir(
     freed = 0
 
     def _remove(path: Path) -> int:
-        """Xóa một job dir; trả về số byte giải phóng (0 nếu rmtree lỗi)."""
+        """Xóa một job dir; trả về số byte giải phóng (0 nếu giữ lại/lỗi)."""
         nonlocal removed, freed
+        # Symlink/junction/reparse point LỒNG bên trong job dir: check top-level
+        # không bắt được, mà rmtree (Python <3.12) đi theo junction → xóa cả
+        # target ngoài jobs/. Conservative: cấu trúc lạ → giữ nguyên (kept).
+        if _has_nested_link_or_reparse(path):
+            log.warning("GC jobs/: %s chứa symlink/junction lồng — giữ lại", path)
+            return 0
         size = _tree_size(path)  # đo trước khi xóa — sau rmtree không còn gì để đo
         try:
             shutil.rmtree(path)

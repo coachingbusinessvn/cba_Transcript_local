@@ -87,9 +87,20 @@ def test_post_cross_site_fetch_site_rejected(live_server):
 
 def test_same_origin_post_passes_guard(live_server):
     """Đối chứng: POST same-origin qua được guard → tới route thật và lỗi
-    validate 422 (thiếu file/model) — chứng tỏ guard không chặn quá tay."""
-    r = live_server.post("/api/jobs", headers={"Origin": "http://127.0.0.1:8756"})
+    validate 422 (thiếu file/model) — chứng tỏ guard không chặn quá tay.
+    Origin phải trùng đúng base_url của server đang chạy (kể cả port)."""
+    r = live_server.post("/api/jobs", headers={"Origin": str(live_server.base_url)})
     assert r.status_code == 422
+
+
+def test_null_and_foreign_loopback_origin_rejected(live_server):
+    """CSRF siết chặt trên socket thật: Origin "null" (sandboxed iframe,
+    file://, redirect) và origin loopback KHÁC port đều cross-origin theo
+    browser → 403 trước khi tới route."""
+    r = live_server.post("/api/jobs", headers={"Origin": "null"})
+    assert r.status_code == 403
+    r = live_server.post("/api/jobs", headers={"Origin": "http://127.0.0.1:1"})
+    assert r.status_code == 403
 
 
 def test_api_response_has_no_store_header(live_server):

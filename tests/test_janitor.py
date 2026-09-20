@@ -1,6 +1,7 @@
 """Tests cho app/janitor.py — GC thư mục jobs/ khi server khởi động."""
 import json
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -195,18 +196,18 @@ def test_stray_dir_without_status_is_kept(tmp_path):
     assert stats["kept"] == 0  # stray không tính là job
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="monkeypatch os.stat không chặn được Path.lstat() trên Python 3.10 "
+    "(lstat bind os.lstat trực tiếp qua _accessor, không tra os.stat lúc gọi) "
+    "nên tag giả không được gắn — test chỉ có ý nghĩa trên 3.11+; uv pin 3.12",
+)
 def test_reparse_point_job_dir_skipped(monkeypatch, tmp_path):
     """Junction/reparse point trên Windows KHÔNG phải symlink nên is_symlink()
     không bắt được: entry.is_dir() theo junction trả True và rmtree (Python
     <3.12) đi theo junction xóa cả target bên ngoài jobs/. GC phải bỏ qua
     mọi entry có st_reparse_tag — giả lập bằng cách gắn tag vào lstat
-    (Path.lstat trên 3.11/3.12 = os.stat(follow_symlinks=False)).
-
-    Chú ý phiên bản Python: monkeypatch `os.stat` chỉ chặn được Path.lstat()
-    trên Python 3.11/3.12 (lstat đi qua stat(follow_symlinks=False)). Trên
-    3.10, Path.lstat bind `os.lstat` trực tiếp qua `_accessor` (bind lúc
-    định nghĩa class, không tra `os.stat` lúc gọi) nên tag giả không được
-    gắn → test này chỉ có ý nghĩa trên Python 3.11+ (uv pin 3.12)."""
+    (Path.lstat trên 3.11/3.12 = os.stat(follow_symlinks=False))."""
     from app import janitor
 
     jobs = _jobs_root(tmp_path)
@@ -238,6 +239,69 @@ def test_reparse_point_job_dir_skipped(monkeypatch, tmp_path):
 
     assert jdir.exists()          # không xóa junction, tuyệt đối không đi theo
     assert stats["removed"] == 0
+
+
+@pytest.mark.skipif(
+    sys.version_info < (3, 11),
+    reason="cùng lý do test_reparse_point_job_dir_skipped: Path.lstat() trên "
+    "3.10 không đi qua os.stat nên monkeypatch không gắn được reparse tag",
+)
+def test_nested_reparse_point_keeps_job_dir(monkeypatch, tmp_path):
+    """Job dir hợp lệ chứa junction/reparse point LỒNG bên trong vẫn nguy
+    hiểm: check top-level trong _list_valid_jobs không nhìn thấy nó, và
+    rmtree (Python <3.12) đi theo junction → xóa cả target ngoài jobs/.
+    GC phải giữ nguyên job dir (đếm là kept), conservative: cấu trúc lạ →
+    không xóa. Test này đi qua luật TUỔI (status.json cũ 40 ngày)."""
+    from app import janitor
+
+    jobs = _jobs_root(tmp_path)
+    jdir = _make_job(jobs, "nestedjob", age_days=40)
+    nested = jdir / "nested"
+    nested.mkdir()
+    real_stat = os.stat
+
+    class _FakeStat:
+        def __init__(self, real):
+            self._real = real
+            self.st_reparse_tag = 0xA0000003  # IO_REPARSE_TAG_MOUNT_POINT
+
+        def __getattr__(self, name):
+            return getattr(self._real, name)
+
+    def fake_stat(path, *a, **k):
+        real = real_stat(path, *a, **k)
+        if Path(path) == nested and k.get("follow_symlinks") is False:
+            return _FakeStat(real)
+        return real
+
+    monkeypatch.setattr(janitor.os, "stat", fake_stat)
+
+    stats = janitor.cleanup_jobs_dir(jobs, max_age_days=30, keep_newest=0)
+
+    assert jdir.exists()
+    assert nested.exists()
+    assert stats["removed"] == 0
+    assert stats["kept"] == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlink cần quyền admin trên Windows")
+def test_nested_symlink_keeps_job_dir(tmp_path):
+    """Symlink lồng trong job dir trỏ ra ngoài jobs/: cùng lý do conservative
+    — thấy symlink/reparse ở bất kỳ độ sâu nào thì giữ nguyên job dir.
+    Test này đi qua luật DUNG LƯỢNG (job mới, cap nhỏ) — bù luật tuổi đã
+    cover ở test reparse phía trên."""
+    jobs = _jobs_root(tmp_path)
+    jdir = _make_job(jobs, "nestedlink", status="done", age_days=0)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (jdir / "link").symlink_to(outside, target_is_directory=True)
+
+    stats = cleanup_jobs_dir(jobs, max_age_days=30, max_total_bytes=1, keep_newest=0)
+
+    assert jdir.exists()
+    assert outside.exists()
+    assert stats["removed"] == 0
+    assert stats["kept"] == 1
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlink cần quyền admin trên Windows")

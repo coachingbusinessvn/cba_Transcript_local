@@ -655,8 +655,11 @@ def test_safe_stem_avoids_windows_device_names():
         "CON", "PRN", "AUX", "NUL",
         *(f"COM{i}" for i in range(1, 10)),
         *(f"LPT{i}" for i in range(1, 10)),
+        # Superscript (U+00B9/B2/B3): Windows map ¹²³ → 1/2/3 nên COM¹ ≡ COM1
+        "COM¹", "COM²", "COM³", "LPT¹", "LPT²", "LPT³",
     }
-    for stem in ("CON", "con", "Nul", "PRN", "AUX", "COM1", "com5", "LPT1", "lpt9"):
+    for stem in ("CON", "con", "Nul", "PRN", "AUX", "COM1", "com5", "LPT1", "lpt9",
+                 "COM¹", "com²", "LPT³", "lpt¹"):
         out = _safe_stem(f"{stem}.mp3")
         assert out.upper() not in devices, (
             f"stem {stem!r} -> {out!r} vẫn là tên thiết bị Windows"
@@ -746,8 +749,104 @@ def test_cross_site_write_blocked():
     r = c.post("/api/jobs", headers={"sec-fetch-site": "cross-site"})
     assert r.status_code == 403
     # Same-origin đi qua guard → request tới route và lỗi validate như bình thường
-    r = c.post("/api/jobs", headers={"origin": "http://127.0.0.1:8756"})
+    r = c.post("/api/jobs", headers={"origin": "http://127.0.0.1"})
     assert r.status_code == 422  # thiếu file/model — nghĩa là đã qua được guard
+
+
+def test_origin_must_match_server_origin_exactly():
+    """CSRF siết chặt: Origin gửi kèm phải trùng ĐÚNG origin của server
+    (scheme + host + port) — UI được phục vụ same-origin nên request thật
+    luôn khớp.
+
+    - "null" (sandboxed iframe, file://, redirect) không còn được miễn → 403.
+    - Loopback nhưng KHÁC port (http://127.0.0.1:9000) vẫn là cross-origin
+      theo định nghĩa browser — một trang độc trên port khác không được ghi → 403.
+    - Origin không parse được / sai scheme → 403.
+    - Không gửi Origin (curl, client tự viết) vẫn được qua → 422 validate.
+    """
+    from fastapi.testclient import TestClient
+
+    from app import server
+
+    c = TestClient(server.app, base_url="http://127.0.0.1")
+    for bad in ("null", "http://127.0.0.1:9000", "notaurl", "https://127.0.0.1"):
+        r = c.post("/api/jobs", headers={"origin": bad})
+        assert r.status_code == 403, f"Origin {bad!r} đáng lẽ bị chặn"
+    # Same-origin trùng base_url (kể cả dạng có trailing slash) → qua guard
+    for ok in ("http://127.0.0.1", "http://127.0.0.1/"):
+        r = c.post("/api/jobs", headers={"origin": ok})
+        assert r.status_code == 422, f"Origin {ok!r} bị chặn nhầm"
+    r = c.post("/api/jobs")  # không Origin: client native vẫn chạy
+    assert r.status_code == 422
+
+
+def test_upload_content_length_checked_before_parse(monkeypatch, tmp_path):
+    """Cap upload phải chạy TRƯỚC khi Starlette parse multipart — trước đây
+    check nằm trong endpoint nên body chunked (không Content-Length) được
+    spool hết vào đĩa rồi mới tới code kiểm tra → lỗ hổng làm đầy đĩa.
+
+    - POST /api/jobs không Content-Length (chunked) → 411.
+    - Content-Length không phải số, hoặc > _MAX_UPLOAD_BYTES → 413.
+    - Bị chặn sớm = endpoint không chạy: JOBS không đổi, đĩa không có file mới.
+    """
+    from fastapi.testclient import TestClient
+
+    from app import config, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    server.JOBS.clear()
+    try:
+        c = TestClient(server.app, base_url="http://127.0.0.1")
+        # httpx không tự gắn Content-Length cho body generator → request đi chunked
+        r = c.post("/api/jobs", content=iter([b"RIFF"]))
+        assert r.status_code == 411
+        r = c.post("/api/jobs", headers={"content-length": "abc"}, content=b"")
+        assert r.status_code == 413
+        r = c.post(
+            "/api/jobs",
+            headers={"content-length": str(server._MAX_UPLOAD_BYTES + 1)},
+            content=b"RIFF",
+        )
+        assert r.status_code == 413
+        # Bằng chứng bị chặn TRƯỚC endpoint: không job nào được đặt, đĩa sạch
+        assert server.JOBS == {}
+        assert list(tmp_path.rglob("*")) == []
+        # Content-Length hợp lệ vẫn qua guard → endpoint validate như thường
+        r = c.post("/api/jobs", content=b"RIFF")
+        assert r.status_code == 422
+    finally:
+        server.JOBS.clear()
+
+
+def test_guard_denials_carry_security_headers():
+    """Response trả sớm từ middleware (403/411/413) phải mang đủ security
+    headers như response từ route — trước đây block header chỉ chạy sau
+    call_next nên các trang từ chối sớm không có nosniff/CSP/no-store."""
+    from fastapi.testclient import TestClient
+
+    from app import server
+
+    c = TestClient(server.app, base_url="http://127.0.0.1")
+    denials = [
+        TestClient(server.app).get("/"),  # Host không loopback → 403
+        c.post("/api/jobs", headers={"origin": "null"}),  # Origin null → 403
+        c.post("/api/jobs", headers={"sec-fetch-site": "cross-site"}),  # → 403
+        c.post("/api/jobs", content=iter([b"x"])),  # thiếu Content-Length → 411
+        c.post(
+            "/api/jobs",
+            headers={"content-length": str(server._MAX_UPLOAD_BYTES + 1)},
+            content=b"x",
+        ),  # → 413
+    ]
+    for r in denials:
+        assert r.status_code in (403, 411, 413)
+        assert r.headers["x-content-type-options"] == "nosniff"
+        assert r.headers["x-frame-options"] == "DENY"
+        assert r.headers["referrer-policy"] == "no-referrer"
+        assert "frame-ancestors 'none'" in r.headers["content-security-policy"]
+    # Denial trên route /api/* còn phải no-store như response API thường
+    r = c.post("/api/jobs", headers={"origin": "null"})
+    assert r.headers["cache-control"] == "no-store"
 
 
 def test_job_id_path_traversal_rejected(monkeypatch, tmp_path):

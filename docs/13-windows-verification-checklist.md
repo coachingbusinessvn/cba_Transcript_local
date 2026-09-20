@@ -94,9 +94,9 @@
   - Refs: `app/server.py:307,327,349,457-466`.
 - [ ] **D2 — Tên file trùng tên thiết bị Windows (`CON.mp3`, `NUL.wav`, `com1.m4a`, `con.heo.mp3`).**
   - Verify: upload `CON.mp3` → export → file tải về tên `_CON.docx` (không phải `CON.docx`), không lỗi 500; upload `con.heo.mp3` → `_con.heo.docx` (Windows match tên thiết bị trên component trước dấu chấm đầu tiên của tên file).
-  - Tại sao: đã vá `_safe_stem` + test (`_WIN_DEVICE_STEMS`, `app/server.py:65-69,464-465`; test `tests/test_core.py::test_safe_stem_avoids_windows_device_names`). Trên POSIX test pass được vì chỉ kiểm stem trả về; **verify thật trên Windows** rằng không còn lỗi ghi file.
-  - Không cover (exotic — chỉ ghi nhận, verify-only): `CONIN$`/`CONOUT$`/`CLOCK$` và dạng superscript `COM¹`/`COM²`/`COM³` (Windows map về COM1/2/3) KHÔNG nằm trong `_WIN_DEVICE_STEMS`; cũng không xử lý component đầu có trailing space (`con .heo.docx`).
-  - Refs: `app/server.py:65-69,457-466`.
+  - Tại sao: đã vá `_safe_stem` + test (`_WIN_DEVICE_STEMS`, `app/server.py:65-71,498-499`; test `tests/test_core.py::test_safe_stem_avoids_windows_device_names`). Trên POSIX test pass được vì chỉ kiểm stem trả về; **verify thật trên Windows** rằng không còn lỗi ghi file.
+  - Không cover (exotic — chỉ ghi nhận, verify-only): `CONIN$`/`CONOUT$`/`CLOCK$` KHÔNG nằm trong `_WIN_DEVICE_STEMS`; cũng không xử lý component đầu có trailing space (`con .heo.docx`).
+  - Refs: `app/server.py:65-71,491-500`.
 - [ ] **D3 — File input đang mở bởi app khác / file trong thư mục OneDrive.**
   - Verify: upload file đang mở (vd video đang phát trong player); file nằm trong OneDrive "Files On-Demand" (placeholder) → upload + chạy bình thường.
   - Tại sao: upload đọc stream HTTP (không đọc file gốc trực tiếp) nên khóa file không ảnh hưởng; OneDrive placeholder được tải về trong lúc đọc — hành vi OS, không kiểm chứng bằng static analysis.
