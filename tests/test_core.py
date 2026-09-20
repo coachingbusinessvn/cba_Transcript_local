@@ -818,6 +818,38 @@ def test_upload_content_length_checked_before_parse(monkeypatch, tmp_path):
         server.JOBS.clear()
 
 
+def test_export_json_body_capped_before_parse(monkeypatch, tmp_path):
+    """Route export cũng phải bị cap TRƯỚC parse: POST chunked không
+    Content-Length trước đây được Starlette buffer hết vào RAM mới tới
+    check trong endpoint → lỗ hổng làm đầy RAM.
+
+    - Chunked (không CL) → 411.
+    - CL > _MAX_JSON_BODY → 413 (cap nhỏ của route JSON, không phải 8 GB).
+    """
+    from fastapi.testclient import TestClient
+
+    from app import config, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    server.JOBS.clear()
+    try:
+        c = TestClient(server.app, base_url="http://127.0.0.1")
+        job_id = "abcdef012345"
+        r = c.post(f"/api/jobs/{job_id}/export", content=iter([b"{}"]))
+        assert r.status_code == 411
+        r = c.post(
+            f"/api/jobs/{job_id}/export",
+            headers={"content-length": str(server._MAX_JSON_BODY + 1)},
+            content=b"{}",
+        )
+        assert r.status_code == 413
+        # JSON nhỏ hợp lệ vẫn qua guard → endpoint trả lỗi nghiệp vụ (404 job)
+        r = c.post(f"/api/jobs/{job_id}/export", json={"format": "txt"})
+        assert r.status_code == 404
+    finally:
+        server.JOBS.clear()
+
+
 def test_guard_denials_carry_security_headers():
     """Response trả sớm từ middleware (403/411/413) phải mang đủ security
     headers như response từ route — trước đây block header chỉ chạy sau

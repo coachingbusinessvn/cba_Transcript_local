@@ -117,20 +117,30 @@ async def _security_guard(request: Request, call_next):
         # luôn gửi Content-Length trên upload nên 411 không ảnh hưởng client
         # thật. Check trong create_job vẫn giữ nguyên (defense in depth — nó
         # còn bắt cả Content-Length khai thiếu so với body thực).
-        if request.method in ("POST", "PUT", "PATCH") and request.url.path == "/api/jobs":
+        if request.method in ("POST", "PUT", "PATCH") and request.url.path.startswith(
+            "/api/"
+        ):
             content_length = request.headers.get("content-length")
             if content_length is None:
                 return deny("Thiếu Content-Length.", 411)
+            # Upload route cho file lớn; route ghi còn lại (export JSON) cap nhỏ.
+            cap = (
+                _MAX_UPLOAD_BYTES
+                if request.url.path == "/api/jobs"
+                else _MAX_JSON_BODY
+            )
             try:
-                oversized = int(content_length) > _MAX_UPLOAD_BYTES
+                oversized = int(content_length) > cap
             except ValueError:
                 oversized = True  # Content-Length không phải số → coi như quá lớn
             if oversized:
-                return deny(
-                    f"File lớn hơn {_MAX_UPLOAD_BYTES // (1 << 30)} GB — "
-                    "hãy nén hoặc cắt file rồi thử lại.",
-                    413,
+                msg = (
+                    f"File lớn hơn {cap // (1 << 30)} GB — "
+                    "hãy nén hoặc cắt file rồi thử lại."
+                    if cap == _MAX_UPLOAD_BYTES
+                    else "Request quá lớn."
                 )
+                return deny(msg, 413)
     response = await call_next(request)
     return _security_headers(response, request.url.path)
 
