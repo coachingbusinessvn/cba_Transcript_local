@@ -1,6 +1,6 @@
 # Punctuation Restoration — verification tracker
 
-**Spec:** `docs/superpowers/specs/2026-07-19-punctuation-restoration-design.md`
+**Spec:** `docs/dev/specs/2026-07-19-punctuation-restoration-design.md`
 
 | ID | Automated evidence | macOS arm64 | macOS x86_64 | Windows x64 |
 |---|---|---|---|---|

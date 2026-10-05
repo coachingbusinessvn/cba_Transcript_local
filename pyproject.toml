@@ -3,6 +3,18 @@ name = "vi-transcript"
 version = "0.1.0"
 description = "Ứng dụng local-first chuyển hội thoại tiếng Việt thành văn bản (transcript) với timestamp và phân biệt người nói"
 requires-python = ">=3.10,<3.13"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Huy Tran" }]
+keywords = ["vietnamese", "speech-to-text", "transcription", "whisper", "diarization", "local-first"]
+classifiers = [
+    "Natural Language :: Vietnamese",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
 dependencies = [
     "faster-whisper>=1.1.0",
     "sherpa-onnx>=1.10.30",
@@ -22,6 +34,10 @@ dependencies = [
     "onnxruntime>=1.20,<1.24",
     "tokenizers>=0.20,<1",
 ]
+
+[project.urls]
+Homepage = "https://github.com/coachingbusinessvn/cba_Transcript_local"
+Issues = "https://github.com/coachingbusinessvn/cba_Transcript_local/issues"
 
 [dependency-groups]
 dev = ["pytest>=8", "pytest-timeout>=2.3", "ruff>=0.4", "jiwer>=3.0"]

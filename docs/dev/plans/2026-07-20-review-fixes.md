@@ -10,7 +10,7 @@
 
 ## Global Constraints
 
-- Worktree code: `/Users/huytv/Github/cba_Transcript_local/.worktrees/vitranscript-impl` — mọi đường dẫn dưới đây là tương đối so với thư mục này.
+- Worktree code: `<repo-root>/.worktrees/vitranscript-impl` — mọi đường dẫn dưới đây là tương đối so với thư mục này.
 - Branch: `fix/review-findings` (tách từ `feature/long-audio-robustness`). Working tree sạch khi bắt đầu — **không được `git add -A`**, chỉ add đúng file mà task liệt kê.
 - `requires-python = ">=3.10,<3.13"` — KHÔNG thêm dependency kéo PyTorch/TensorFlow.
 - `uv run ruff check .` phải sạch trước mỗi commit (`line-length = 100`).
@@ -936,7 +936,7 @@ Trong `CLAUDE.md` của worktree, mục "Lệnh nhanh":
 uv run pytest tests/ -v           # unit tests — expected: 46 passed, 1 deselected
 ```
 
-Trong `CLAUDE.md` và `AGENTS.md` của repo gốc (`/Users/huytv/Github/cba_Transcript_local`), sửa dòng task 8 trong bảng trạng thái từ `(tests/test_core.py, 8 test)` / `8 test pass` thành số thật sau khi chạy `uv run pytest tests/ -q`. Cập nhật cả block `<!-- auto-update: start -->` trong `CLAUDE.md` và `<!-- status-block: start -->` trong `AGENTS.md` cho khớp nhau, đúng RULE trong CLAUDE.md.
+Trong `CLAUDE.md` và `AGENTS.md` của repo gốc (`<repo-root>`), sửa dòng task 8 trong bảng trạng thái từ `(tests/test_core.py, 8 test)` / `8 test pass` thành số thật sau khi chạy `uv run pytest tests/ -q`. Cập nhật cả block `<!-- auto-update: start -->` trong `CLAUDE.md` và `<!-- status-block: start -->` trong `AGENTS.md` cho khớp nhau, đúng RULE trong CLAUDE.md.
 
 - [ ] **Step 5: Lint và commit**
 
@@ -956,7 +956,7 @@ EOF
 Commit `CLAUDE.md` + `AGENTS.md` của repo gốc riêng (khác branch):
 
 ```bash
-cd /Users/huytv/Github/cba_Transcript_local
+cd <repo-root>
 git add CLAUDE.md AGENTS.md
 git commit -m "$(cat <<'EOF'
 docs: sua so unit test (8 -> so thuc te)

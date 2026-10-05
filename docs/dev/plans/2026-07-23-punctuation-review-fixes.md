@@ -33,7 +33,7 @@
 - `tests/test_punctuate.py` — thêm/siết test cho cả 5 fix.
 - `scripts/eval_punctuation.py` — `sentence_boundaries()` map theo index; body vào `main()`.
 - `docs/11-tasks-punctuation-restoration.md` — bỏ env var thừa khỏi command evidence.
-- `docs/superpowers/plans/2026-07-19-punctuation-restoration.md` — phụ lục amendments.
+- `docs/dev/plans/2026-07-19-punctuation-restoration.md` — phụ lục amendments.
 
 Không tạo file mới.
 
@@ -456,7 +456,7 @@ git commit -m "test: kiem tra UI dau cau bang parser thay vi so chuoi" \
 - Modify: `scripts/eval_punctuation.py`
 - Modify: `tests/test_punctuate.py` (test mới + sửa `test_real_punctuation_model_contract`)
 - Modify: `docs/11-tasks-punctuation-restoration.md:25`
-- Modify: `docs/superpowers/plans/2026-07-19-punctuation-restoration.md` (phụ lục cuối file)
+- Modify: `docs/dev/plans/2026-07-19-punctuation-restoration.md` (phụ lục cuối file)
 
 **Interfaces:**
 
@@ -583,13 +583,13 @@ Trong `docs/11-tasks-punctuation-restoration.md`, sửa dòng evidence bỏ env 
   - `uv run pytest -m model tests/test_punctuate.py::test_real_punctuation_model_contract -v` → PASS (~13s first run)
 ```
 
-Thêm vào CUỐI `docs/superpowers/plans/2026-07-19-punctuation-restoration.md`:
+Thêm vào CUỐI `docs/dev/plans/2026-07-19-punctuation-restoration.md`:
 
 ```markdown
 ## Amendments sau review (2026-07-23)
 
 Plan này đã thực thi xong; review hồi cứu tìm ra 5 defect, được sửa theo
-`docs/superpowers/plans/2026-07-23-punctuation-review-fixes.md`. Khi đọc lại plan gốc,
+`docs/dev/plans/2026-07-23-punctuation-review-fixes.md`. Khi đọc lại plan gốc,
 lưu ý các điểm sau đã bị thay thế:
 
 - Task 3 Step 4: `_apply_case` không dùng `str.capitalize()` nữa — nó phá casing giữa từ
@@ -620,7 +620,7 @@ Expected: toàn bộ suite PASS (1 test `model` deselected), ruff sạch.
 ```bash
 git add scripts/eval_punctuation.py tests/test_punctuate.py \
   docs/11-tasks-punctuation-restoration.md \
-  docs/superpowers/plans/2026-07-19-punctuation-restoration.md
+  docs/dev/plans/2026-07-19-punctuation-restoration.md
 git commit -m "fix: eval boundary theo index va don gate test model" \
   -m "Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>"
 ```

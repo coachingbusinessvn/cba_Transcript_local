@@ -11,9 +11,14 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
   01-bai-toan.md        # Bài toán, quyết định kỹ thuật đã chốt, tiêu chí nghiệm thu
   02-plan.md            # Plan chi tiết từng task (code đầy đủ, interface, verify steps)
   03-tasks.md           # Bảng theo dõi trạng thái (xong/đang làm/chưa làm)
+  dev/                  # Plan/spec chi tiết từ quá trình phát triển (trước là docs/superpowers/)
 app/                    # Code ứng dụng (config, media, transcribe, diarize, pipeline, server…)
-tests/                  # Unit test (test_core.py, test_punctuate.py)
+tests/                  # Unit test (test_core.py, test_punctuate.py, test_janitor.py, test_server_live.py)
 scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_punctuation_model.py
+.github/                # CI (ruff + pytest Ubuntu/macOS/Windows), mẫu issue/PR
+LICENSE                 # MIT
+THIRD_PARTY_NOTICES.md  # License model/ffmpeg tải lúc chạy — cập nhật khi thêm model/thư viện
+SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
 ```
 
 > Trước đây code nằm ở worktree `.worktrees/vitranscript-impl/`; từ bản merge 2026-07-24
@@ -81,6 +86,8 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 - Server chỉ bind `127.0.0.1` + middleware `_security_guard`: Host phải là loopback (chống DNS rebinding), request ghi từ Origin/`Sec-Fetch-Site` cross-site bị 403 (chống CSRF); `job_id` phải là uuid-hex-12 (chống path traversal)
 - Text UI: tiếng Việt; `.bat` viết không dấu (tránh lỗi codepage Windows)
 - URL diarization: `"speaker-recongition-models"` — lỗi chính tả là CỐ Ý (upstream), không sửa
+- Mọi model tải lúc chạy PHẢI ghim: Whisper → `revision` (commit HF) trong `MODEL_REGISTRY`; dấu câu → revision + SHA-256; diarization → SHA-256. Thêm model → cập nhật `THIRD_PARTY_NOTICES.md`
+- Repo open source (MIT): không commit đường dẫn máy cá nhân, audio/transcript thật, hay token
 
 ## RULE: Luôn cập nhật CLAUDE.md và AGENTS.md
 

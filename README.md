@@ -1,5 +1,16 @@
 # ViTranscript
 
+[![CI](https://github.com/coachingbusinessvn/cba_Transcript_local/actions/workflows/ci.yml/badge.svg)](https://github.com/coachingbusinessvn/cba_Transcript_local/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Python 3.10–3.12](https://img.shields.io/badge/python-3.10%E2%80%933.12-blue)
+![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
+
+> **English:** ViTranscript is a local-first desktop tool that turns Vietnamese audio and
+> video into timestamped, speaker-labelled transcripts. It exports DOCX, XLSX, SRT and TXT.
+> It runs fully offline on CPU (faster-whisper + PhoWhisper, sherpa-onnx diarization, ONNX
+> punctuation restoration). Recordings never leave your machine. The UI and docs are in
+> Vietnamese; contributions in English are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 Ứng dụng **local-first** chuyển hội thoại tiếng Việt (audio/video) thành văn bản có timestamp, phân biệt người nói, và xuất DOCX / Excel / SRT / TXT.
 
 Mọi xử lý chạy **trên máy của bạn**. File ghi âm và transcript **không được tải lên server bên thứ ba**.
@@ -143,6 +154,10 @@ Server tự tìm cổng trống bắt đầu từ **8756** (8756–8805). Nếu 
 
 App ưu tiên `ffmpeg` có sẵn trên PATH; nếu thiếu sẽ **tự dùng static-ffmpeg** (kèm theo dependency). Không cần cài ffmpeg thủ công trong hầu hết trường hợp.
 
+> Bản static-ffmpeg được tải từ GitHub và **không kiểm tra checksum**. Nếu cần mức tin cậy cao,
+> hãy cài ffmpeg từ nguồn chính thức (Homebrew, winget…) trước khi chạy app. Xem
+> [`SECURITY.md`](SECURITY.md).
+
 ### Windows: không tìm thấy `uv` sau khi cài
 
 1. **Đóng và mở lại** cửa sổ CMD/PowerShell (hoặc đăng xuất/đăng nhập).
@@ -180,3 +195,17 @@ uv run python scripts/eval_punctuation.py         # boundary F1, cần fixture r
 ```
 
 Tài liệu kỹ thuật: [`docs/01-bai-toan.md`](docs/01-bai-toan.md), [`docs/02-plan.md`](docs/02-plan.md), [`docs/03-tasks.md`](docs/03-tasks.md).
+
+---
+
+## Đóng góp & bảo mật
+
+- Hướng dẫn đóng góp: [`CONTRIBUTING.md`](CONTRIBUTING.md) · Quy tắc ứng xử: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- Báo lỗ hổng bảo mật (kênh riêng tư): [`SECURITY.md`](SECURITY.md)
+
+## License
+
+Mã nguồn ViTranscript phát hành theo [MIT License](LICENSE).
+App không đóng gói model hay ffmpeg, mà tải chúng về lúc chạy. Mỗi thành phần đó giữ license
+riêng (PhoWhisper: BSD-3-Clause, ViBERT-CAPU: CC-BY-SA-4.0, FFmpeg: LGPL/GPL…). Xem
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

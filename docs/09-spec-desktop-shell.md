@@ -2,7 +2,7 @@
 
 > **Trạng thái:** đã chốt về thiết kế, sẵn sàng lập trình; **chưa triển khai**.
 > **Ngày chốt:** 2026-07-19.
-> **Plan thực thi:** [superpowers/plans/2026-07-19-desktop-shell.md](superpowers/plans/2026-07-19-desktop-shell.md).
+> **Plan thực thi:** [dev/plans/2026-07-19-desktop-shell.md](dev/plans/2026-07-19-desktop-shell.md).
 > **Theo dõi:** [10-tasks-desktop-shell.md](10-tasks-desktop-shell.md).
 
 ## 1. Mục tiêu

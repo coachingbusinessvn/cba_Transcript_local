@@ -47,7 +47,13 @@ docs/
   03-tasks.md               Task tracking table (done / in-progress / todo, WER results)
   11-tasks-punctuation-restoration.md   Punctuation task spec
   13-windows-verification-checklist.md  Windows verify checklist (Task 14)
+  dev/                      Detailed dev plans/specs (formerly docs/superpowers/)
 app/                        ALL application code lives here (merged to repo root 2026-07-24)
+tests/                      Unit tests (test_core, test_punctuate, test_janitor, test_server_live)
+.github/                    CI (ruff + pytest on Ubuntu/macOS/Windows), issue/PR templates
+LICENSE                     MIT
+THIRD_PARTY_NOTICES.md      Licenses of runtime-downloaded models/ffmpeg — update when adding one
+SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
 ```
 
 **Working directory rule:** work directly at the repo root — code lives in `app/`, tests in `tests/`, scripts in `scripts/`. (A `.worktrees/` dev worktree may optionally be used for isolation, but is not required.)
@@ -79,6 +85,8 @@ app/                        ALL application code lives here (merged to repo root
 | Localhost only | Server binds `127.0.0.1` only — never `0.0.0.0`. Middleware `_security_guard`: Host must be loopback (anti-DNS-rebinding), write requests with cross-site Origin/`Sec-Fetch-Site` get 403 (anti-CSRF); `job_id` must be uuid-hex-12 (anti-path-traversal) |
 | onnxruntime `<1.24` | 1.23.x is the last release with macOS x86_64 wheels (1.24 has no macOS wheel, 1.25+ is arm64-only) — bumping breaks install on Intel Macs |
 | Intentional typo | `"speaker-recongition-models"` in diarization URL is an upstream typo — do NOT "fix" it |
+| Pinned downloads | Every runtime-downloaded model must be pinned: Whisper → HF commit `revision` in `MODEL_REGISTRY`; punctuation → revision + SHA-256; diarization → SHA-256 |
+| Open source (MIT) | Never commit personal machine paths, real audio/transcripts, or tokens |
 | Windows `.bat` encoding | No Vietnamese diacritics in `.bat` scripts (Windows codepage issues) |
 | `names` dict keys | Always strings: `"0"`, `"1"`, … — consistent across export / server / UI |
 
