@@ -359,8 +359,10 @@ def test_export_srt_with_speaker_override(monkeypatch, tmp_path):
         r = c.post(f"/api/jobs/{job_id}/export",
                    json={"format": "srt", "speakers": {"1": 0}})
         assert r.status_code == 200
-        srt = (tmp_path / "jobs" / job_id / "hop.srt").read_text(encoding="utf-8")
-        assert "Người nói 1: Chào bạn." in srt  # dòng 2 đã đổi từ speaker 1 → 0
+        assert 'filename="hop.srt"' in r.headers["content-disposition"]
+        assert "Người nói 1: Chào bạn." in r.text  # dòng 2 đã đổi từ speaker 1 → 0
+        # File tạm của export bị xóa sau khi gửi — không tích tụ trong thư mục job
+        assert not list((tmp_path / "jobs" / job_id).glob("*.srt"))
     finally:
         server.JOBS.pop(job_id, None)
 
@@ -690,6 +692,7 @@ def test_safe_stem_avoids_windows_device_names():
 
 def test_load_model_frees_old_model_before_building_new(monkeypatch):
     import app.transcribe as tr
+    from app import config
 
     seen_during_construct = {}
 
@@ -697,6 +700,7 @@ def test_load_model_frees_old_model_before_building_new(monkeypatch):
         def __init__(self, source, **kwargs):
             # Model cu phai da bi giai phong TRUOC khi model moi cap phat RAM
             seen_during_construct["cache"] = dict(tr._MODEL_CACHE)
+            seen_during_construct["revision"] = kwargs.get("revision")
 
     fake_module = type("M", (), {"WhisperModel": FakeWhisperModel})
     monkeypatch.setitem(__import__("sys").modules, "faster_whisper", fake_module)
@@ -707,6 +711,10 @@ def test_load_model_frees_old_model_before_building_new(monkeypatch):
         tr.load_model("phowhisper-small")
 
         assert seen_during_construct["cache"] == {}
+        # Luôn tải đúng commit đã ghim, không phải "main" mới nhất của repo bên thứ ba
+        assert seen_during_construct["revision"] == (
+            config.MODEL_REGISTRY["phowhisper-small"]["revision"]
+        )
         assert list(tr._MODEL_CACHE) == ["phowhisper-small"]
     finally:
         tr._MODEL_CACHE.clear()
@@ -1014,3 +1022,153 @@ def test_export_tolerates_extra_keys_in_sentences(monkeypatch, tmp_path):
     r = TestClient(server.app, base_url="http://127.0.0.1").post(
         f"/api/jobs/{job_id}/export", json={"format": "txt"})
     assert r.status_code == 200
+
+
+def test_every_whisper_model_is_pinned_to_a_commit():
+    import re
+
+    from app import config
+
+    for key, entry in config.MODEL_REGISTRY.items():
+        assert re.fullmatch(r"[0-9a-f]{40}", entry.get("revision", "")), key
+
+
+def test_model_is_downloaded_requires_pinned_snapshot(monkeypatch, tmp_path):
+    from app import config
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    root = tmp_path / "models" / "models--diepho--PhoWhisper-small-ct2" / "snapshots"
+    (root / ("0" * 40)).mkdir(parents=True)
+    (root / ("0" * 40) / "model.bin").write_bytes(b"x")
+    # Snapshot của revision cũ không tính là "đã tải" — job sẽ tải đúng bản ghim
+    assert not config.model_is_downloaded("phowhisper-small")
+    pinned = root / config.MODEL_REGISTRY["phowhisper-small"]["revision"]
+    pinned.mkdir()
+    (pinned / "model.bin").write_bytes(b"x")
+    assert config.model_is_downloaded("phowhisper-small")
+
+
+def test_zero_address_host_rejected():
+    from fastapi.testclient import TestClient
+
+    from app import server
+
+    # Server chỉ bind 127.0.0.1 — Host 0.0.0.0 không bao giờ hợp lệ
+    assert TestClient(server.app, base_url="http://0.0.0.0:8756").get("/").status_code == 403
+
+
+def _done_job(server, job_id):
+    server.JOBS[job_id] = {
+        "status": "done", "filename": "hop.mp3",
+        "result": {"sentences": [
+            {"start": 0.0, "end": 1.0, "text": "Xin chào.", "speaker": 0},
+            {"start": 1.0, "end": 2.0, "text": "Chào bạn.", "speaker": 1},
+        ], "duration": 2.0, "num_speakers": 2, "extracted_audio": None, "model": "x"},
+    }
+
+
+def test_export_rejects_malformed_body_without_500(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app import config, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    job_id = "abc123def457"
+    (tmp_path / "jobs" / job_id).mkdir(parents=True)
+    _done_job(server, job_id)
+    try:
+        c = TestClient(server.app, base_url="http://127.0.0.1", raise_server_exceptions=False)
+        url = f"/api/jobs/{job_id}/export"
+        assert c.post(url, json={"format": ["srt"]}).status_code == 400
+        assert c.post(url, json={"format": {"x": 1}}).status_code == 400
+        # speakers sai kiểu bị bỏ qua êm, export vẫn chạy
+        assert c.post(url, json={"format": "txt", "speakers": ["0"]}).status_code == 200
+        assert c.post(url, json={"format": "txt", "speakers": "01"}).status_code == 200
+        r = c.post(
+            url,
+            content=b'{"format": "txt", "speakers": {"0": Infinity}}',
+            headers={"content-type": "application/json"},
+        )
+        assert r.status_code == 200
+    finally:
+        server.JOBS.pop(job_id, None)
+
+
+def test_concurrent_exports_use_separate_files(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app import config, export, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    job_id = "abc123def458"
+    (tmp_path / "jobs" / job_id).mkdir(parents=True)
+    _done_job(server, job_id)
+    paths = []
+    real = export.to_txt
+    monkeypatch.setitem(
+        server._EXPORTERS, "txt", lambda s, out, n: (paths.append(out), real(s, out, n))
+    )
+    try:
+        c = TestClient(server.app, base_url="http://127.0.0.1")
+        for _ in range(2):
+            r = c.post(f"/api/jobs/{job_id}/export", json={"format": "txt"})
+            assert r.status_code == 200
+            assert 'filename="hop.txt"' in r.headers["content-disposition"]
+        assert paths[0] != paths[1]
+        assert not any(p.exists() for p in paths)
+    finally:
+        server.JOBS.pop(job_id, None)
+
+
+def test_create_job_normalizes_language_case(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app import config, media, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    monkeypatch.setattr(media, "duration_seconds", lambda p: 1.0)
+    captured = {}
+
+    class CaptureThread:
+        def __init__(self, target, args, daemon):
+            captured["opts"] = args[2]
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(server.threading, "Thread", CaptureThread)
+    server.JOBS.clear()
+    try:
+        c = TestClient(server.app, base_url="http://127.0.0.1")
+        r = c.post(
+            "/api/jobs",
+            files={"file": ("hop.wav", b"RIFF", "audio/wav")},
+            data={"model": "phowhisper-small", "language": "VI"},
+        )
+        assert r.status_code == 200
+        assert captured["opts"]["language"] == "vi"
+        assert config.load_settings()["language"] == "vi"
+    finally:
+        server.JOBS.clear()
+
+
+def test_failed_create_job_leaves_no_orphan_job_dir(monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+
+    from app import config, media, server
+
+    monkeypatch.setattr(config, "data_dir", lambda: tmp_path)
+    # File quá dài → 400 sau khi đã ghi status.json "running" + input
+    monkeypatch.setattr(media, "duration_seconds", lambda p: server._MAX_INPUT_SECONDS + 1)
+    server.JOBS.clear()
+    try:
+        c = TestClient(server.app, base_url="http://127.0.0.1")
+        r = c.post(
+            "/api/jobs",
+            files={"file": ("hop.wav", b"RIFF", "audio/wav")},
+            data={"model": "phowhisper-small"},
+        )
+        assert r.status_code == 400
+        assert list((tmp_path / "jobs").iterdir()) == []
+    finally:
+        server.JOBS.clear()

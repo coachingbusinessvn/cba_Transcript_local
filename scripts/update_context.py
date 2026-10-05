@@ -107,16 +107,19 @@ def update_claude_md():
     if _START in text and _END in text:
         text = re.sub(
             re.escape(_START) + r".*?" + re.escape(_END),
-            new_section,
+            # lambda: repl dạng chuỗi sẽ diễn giải "\" trong nội dung (vd. đường dẫn Windows)
+            lambda _m: new_section,
             text,
+            count=1,  # chỉ khối đầu tiên — văn bản khác nhắc tới marker không bị thay
             flags=re.DOTALL,
         )
     else:
         # Lần đầu: thay thế section ## Trạng thái hiện tại cũ (nếu có)
         text = re.sub(
             r"## Trạng thái hiện tại[^\n]*\n.*?(?=\n## |\Z)",
-            new_section + "\n\n",
+            lambda _m: new_section + "\n\n",
             text,
+            count=1,
             flags=re.DOTALL,
         )
 
@@ -162,8 +165,9 @@ def update_agents_md():
     if _AGENTS_START in text and _AGENTS_END in text:
         text = re.sub(
             re.escape(_AGENTS_START) + r".*?" + re.escape(_AGENTS_END),
-            new_section,
+            lambda _m: new_section,
             text,
+            count=1,
             flags=re.DOTALL,
         )
         AGENTS_MD.write_text(text, encoding="utf-8")

@@ -97,7 +97,7 @@ app/                        ALL application code lives here (merged to repo root
 | # | Task | Trạng thái | Ghi chú |
 |---|------|-----------|---------|
 | 0 | Khung dự án (`pyproject.toml` + ruff, `.python-version`, package `app`) | 🟢 | Commit `uv.lock`; có `numpy>=1.26` |
-| 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17) |
+| 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17); mọi model Whisper ghim commit HF (`revision`) |
 | 2 | Media/ffmpeg (`app/media.py`) | 🟢 | |
 | 3 | Transcribe faster-whisper (`app/transcribe.py`) | 🟢 | `hotwords` + fallback; cache 1 model/process |
 | 4 | Diarization sherpa-onnx (`app/diarize.py`) | 🟢 | |
@@ -105,8 +105,8 @@ app/                        ALL application code lives here (merged to repo root
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py` + `tests/test_server_live.py`, 102 test) | 🟢 | 101 passed, 1 deselected |
-| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), Origin request ghi phải trùng đúng origin server + chặn Sec-Fetch-Site cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB (Content-Length check tại middleware trước multipart parse) |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py` + `tests/test_server_live.py`, 109 test) | 🟢 | 108 passed, 1 deselected; CI GitHub Actions (ruff + pytest trên Ubuntu/macOS/Windows) |
+| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), Origin request ghi phải trùng đúng origin server + chặn Sec-Fetch-Site cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB (Content-Length check tại middleware trước multipart parse); export ghi file tạm riêng mỗi request, filename = stem gốc |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
@@ -119,7 +119,6 @@ app/                        ALL application code lives here (merged to repo root
 - [ ] Verify installer trên Windows thật (chưa có máy trong phiên này) — checklist: `docs/13-windows-verification-checklist.md`
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [x] GC thư mục jobs (disk) — auto-GC `app/janitor.py` chạy 1 lần lúc server khởi động: xóa job >30 ngày (kể cả `running` cũ do crash); jobs/ >20 GB thì xóa cũ nhất trước, luôn giữ 10 job mới nhất; luật dung lượng không đụng job `running`
 <!-- status-block: end -->
 
 ---

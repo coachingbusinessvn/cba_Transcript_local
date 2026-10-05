@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import socket
 import threading
 import time
@@ -17,6 +18,8 @@ from typing import Annotated
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, Response
+from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from . import checkpoint, config, export, media, pipeline, segment
 from .segment import Sentence
@@ -55,7 +58,8 @@ _MAX_FILENAME_CHARS = 200
 _MAX_SPEAKERS = 20  # khớp max của UI; chặn số cực lớn đẩy vào thư viện clustering native
 _JOB_ID_RE = re.compile(r"[0-9a-f]{12}")
 _LANGUAGE_RE = re.compile(r"[a-z]{2,3}|auto")
-_ALLOWED_HOSTS = {"127.0.0.1", "::1", "0.0.0.0", "localhost"}
+# Server chỉ bind 127.0.0.1 nên Host hợp lệ chỉ có thể là tên/địa chỉ loopback.
+_ALLOWED_HOSTS = {"127.0.0.1", "::1", "localhost"}
 # Ký tự cấm trong tên file Windows + ký tự điều khiển — filename do client gửi
 # đi vào tên file export nên phải lọc trước khi ghép vào đường dẫn.
 _UNSAFE_STEM_CHARS = re.compile(r'[\\/:*?"<>|\x00-\x1f]')
@@ -166,13 +170,14 @@ def _long_audio_policy(duration: float | None, diarize: bool) -> tuple[bool, str
 
 def _apply_speaker_overrides(sentences: list[Sentence], overrides: dict | None) -> None:
     """Áp chỉnh sửa người nói từ client (best-effort, entry không hợp lệ bỏ qua êm)."""
-    if not overrides:
+    # Body JSON do client gửi: speakers có thể là list/string → bỏ qua thay vì 500.
+    if not isinstance(overrides, dict) or not overrides:
         return
     valid = {s.speaker for s in sentences if s.speaker is not None}
     for k, v in overrides.items():
         try:
             i, spk = int(k), int(v)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):  # OverflowError: int(Infinity)
             continue
         if 0 <= i < len(sentences) and spk in valid and sentences[i].speaker is not None:
             sentences[i].speaker = spk
@@ -343,7 +348,10 @@ async def create_job(
 ):
     if model not in config.MODEL_REGISTRY:
         raise HTTPException(400, "Model không hợp lệ")
-    if not _LANGUAGE_RE.fullmatch(language.lower()):
+    # Chuẩn hóa trước khi kiểm tra: faster-whisper chỉ nhận mã thường ("vi", không "VI")
+    # và giá trị này còn được lưu vào settings.json cho UI chọn lại.
+    language = language.strip().lower()
+    if not _LANGUAGE_RE.fullmatch(language):
         raise HTTPException(400, "Ngôn ngữ không hợp lệ")
     if len(glossary) > _MAX_GLOSSARY_CHARS:
         raise HTTPException(400, "Glossary quá dài (tối đa 100 KB)")
@@ -385,7 +393,6 @@ async def create_job(
 
     # Nếu chuẩn bị file thất bại, phải nhả chỗ đã đặt — nếu không job "running"
     # sẽ kẹt vĩnh viễn và chặn mọi job sau.
-    input_path: Path | None = None
     try:
         job_dir = _job_dir(job_id)
         # _save_job ở trên đã tạo thư mục (ghi status.json) — exist_ok tránh FileExistsError 500
@@ -403,7 +410,9 @@ async def create_job(
                     )
                 f.write(chunk)
 
-        duration = media.duration_seconds(input_path)
+        # ffprobe đồng bộ (tới 30s, lần đầu có thể tải static-ffmpeg) — chạy trong
+        # threadpool để không chặn event loop (UI, /api/meta, polling tab khác).
+        duration = await run_in_threadpool(media.duration_seconds, input_path)
         diarize, note = _long_audio_policy(duration, diarize)
         if note:
             with _JOBS_LOCK:
@@ -433,11 +442,10 @@ async def create_job(
     except Exception:
         with _JOBS_LOCK:
             JOBS.pop(job_id, None)
-        # File input ghi dở (upload quá lớn, file quá dài, thread không start được)
-        # không còn job nào dùng — xóa để không để lại hàng GB mồ côi trên đĩa.
-        if input_path is not None:
-            with suppress(OSError):
-                input_path.unlink()
+        # Job chưa từng chạy (upload quá lớn, file quá dài, thread không start được):
+        # xóa cả thư mục — file input ghi dở (có thể hàng GB) lẫn status.json
+        # "running" mồ côi (nếu để lại, GET job sẽ báo nhầm "server đã dừng giữa chừng").
+        shutil.rmtree(config.jobs_dir() / job_id, ignore_errors=True)
         raise
     return {"job_id": job_id}
 
@@ -518,7 +526,7 @@ def export_job(job_id: str, body: dict, request: Request):
     if not (job.get("result") or {}).get("sentences"):
         raise HTTPException(409, "Job chưa xong")
     fmt = body.get("format", "docx")
-    if fmt not in _EXPORTERS:
+    if not isinstance(fmt, str) or fmt not in _EXPORTERS:  # list/dict → 400, không 500
         raise HTTPException(400, "Định dạng không hợp lệ")
     names = _clean_names(body.get("names"))
     # Chỉ chuyển đúng các field của Sentence — status.json đọc từ đĩa có thể
@@ -530,7 +538,9 @@ def export_job(job_id: str, body: dict, request: Request):
     ]
     _apply_speaker_overrides(sentences, body.get("speakers"))
     stem = _safe_stem(job["filename"])
-    out = _job_dir(job_id) / f"{stem}.{fmt}"
+    # Mỗi request ghi ra file riêng rồi xóa sau khi gửi xong: hai lần bấm export
+    # liền nhau không còn ghi đè chung một file trong lúc FileResponse đang stream.
+    out = _job_dir(job_id) / f".export-{uuid.uuid4().hex[:12]}.{fmt}"
     if fmt == "docx":
         export.to_docx(
             sentences,
@@ -544,7 +554,16 @@ def export_job(job_id: str, body: dict, request: Request):
         )
     else:
         _EXPORTERS[fmt](sentences, out, names)
-    return FileResponse(out, filename=out.name)
+    return FileResponse(
+        out,
+        filename=f"{stem}.{fmt}",
+        background=BackgroundTask(_unlink_quietly, out),
+    )
+
+
+def _unlink_quietly(path: Path) -> None:
+    with suppress(OSError):
+        path.unlink()
 
 
 @app.get("/api/jobs/{job_id}/audio")
