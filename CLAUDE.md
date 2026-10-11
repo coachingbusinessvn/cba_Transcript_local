@@ -1,5 +1,8 @@
 # ViTranscript — Context nhanh cho AI
 
+> **Người dùng chỉ muốn cài đặt / chạy app (không phát triển code)?** → Làm theo
+> [`CAI-DAT-BANG-AI.md`](CAI-DAT-BANG-AI.md) và bỏ qua phần còn lại của file này.
+
 ## Dự án là gì
 
 Ứng dụng **local-first** chạy Mac/Windows: chọn file audio/video → transcript tiếng Việt → xuất DOCX/XLSX/SRT/TXT. Không cloud, không API fee, chạy offline sau lần tải model đầu.

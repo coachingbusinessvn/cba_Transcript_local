@@ -10,7 +10,24 @@ Lần đầu dùng model cần mạng để tải model về máy; sau đó có 
 
 ---
 
-## Cài đặt
+## Cài đặt nhanh: nhờ AI cài giúp
+
+Không rành kỹ thuật? Mở Claude, ChatGPT, Gemini… (hoặc Claude Code / Codex nếu bạn có) và dán nguyên đoạn sau:
+
+```text
+Hãy cài giúp tôi ứng dụng ViTranscript (chuyển ghi âm tiếng Việt thành văn bản, chạy trên máy).
+Mã nguồn: https://github.com/coachingbusinessvn/cba_Transcript_local
+Làm đúng theo file hướng dẫn dành cho AI trong repo:
+https://github.com/coachingbusinessvn/cba_Transcript_local/blob/main/CAI-DAT-BANG-AI.md
+Máy của tôi là: [macOS / Windows]. Tôi không rành kỹ thuật — hãy hướng dẫn từng bước,
+mỗi lần một lệnh, và chờ tôi gửi lại kết quả.
+```
+
+AI sẽ đọc [`CAI-DAT-BANG-AI.md`](CAI-DAT-BANG-AI.md) và dẫn bạn qua từng bước. Nếu AI không mở được đường link, hãy tải file đó về và đính kèm vào cuộc trò chuyện.
+
+---
+
+## Cài đặt thủ công
 
 ### macOS
 

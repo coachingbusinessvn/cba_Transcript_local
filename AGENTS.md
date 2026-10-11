@@ -1,5 +1,9 @@
 # ViTranscript — Agent Context
 
+> **End user just wants to install / run the app (not develop it)?** → Follow
+> [`CAI-DAT-BANG-AI.md`](CAI-DAT-BANG-AI.md) (Vietnamese install guide for AI assistants)
+> and ignore the rest of this file. Do not commit or modify code.
+
 > Canonical context file for AI agents (Codex, Gemini, GPT, etc.).
 > Human-readable counterpart: `CLAUDE.md` (Claude Code specific).
 > Detail docs: `docs/01-bai-toan.md`, `docs/02-plan.md`, `docs/03-tasks.md`.
