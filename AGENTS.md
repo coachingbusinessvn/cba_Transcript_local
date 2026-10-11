@@ -50,11 +50,17 @@ docs/
   02-plan.md                Per-task plan with full code, interfaces, verify steps
   03-tasks.md               Task tracking table (done / in-progress / todo, WER results)
   11-tasks-punctuation-restoration.md   Punctuation task spec
-.worktrees/
-  vitranscript-impl/        ALL CODE lives here (git worktree, branch: vitranscript-impl)
+  13-windows-verification-checklist.md  Windows verify checklist (Task 14)
+  dev/                      Detailed dev plans/specs (formerly docs/superpowers/)
+app/                        ALL application code lives here (merged to repo root 2026-07-24)
+tests/                      Unit tests (test_core, test_punctuate, test_janitor, test_server_live)
+.github/                    CI (ruff + pytest on Ubuntu/macOS/Windows), issue/PR templates
+LICENSE                     MIT
+THIRD_PARTY_NOTICES.md      Licenses of runtime-downloaded models/ffmpeg — update when adding one
+SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
 ```
 
-**Working directory rule:** always use `.worktrees/vitranscript-impl/` when reading or editing code.
+**Working directory rule:** work directly at the repo root — code lives in `app/`, tests in `tests/`, scripts in `scripts/`. (A `.worktrees/` dev worktree may optionally be used for isolation, but is not required.)
 
 ---
 
@@ -80,8 +86,11 @@ docs/
 |---|---|
 | No heavy ML frameworks | NO dependency that pulls PyTorch or TensorFlow |
 | Single job | v1: one job at a time — server returns HTTP 409 if a job is running |
-| Localhost only | Server binds `127.0.0.1` only — never `0.0.0.0` |
+| Localhost only | Server binds `127.0.0.1` only — never `0.0.0.0`. Middleware `_security_guard`: Host must be loopback (anti-DNS-rebinding), write requests with cross-site Origin/`Sec-Fetch-Site` get 403 (anti-CSRF); `job_id` must be uuid-hex-12 (anti-path-traversal) |
+| onnxruntime `<1.24` | 1.23.x is the last release with macOS x86_64 wheels (1.24 has no macOS wheel, 1.25+ is arm64-only) — bumping breaks install on Intel Macs |
 | Intentional typo | `"speaker-recongition-models"` in diarization URL is an upstream typo — do NOT "fix" it |
+| Pinned downloads | Every runtime-downloaded model must be pinned: Whisper → HF commit `revision` in `MODEL_REGISTRY`; punctuation → revision + SHA-256; diarization → SHA-256 |
+| Open source (MIT) | Never commit personal machine paths, real audio/transcripts, or tokens |
 | Windows `.bat` encoding | No Vietnamese diacritics in `.bat` scripts (Windows codepage issues) |
 | `names` dict keys | Always strings: `"0"`, `"1"`, … — consistent across export / server / UI |
 
@@ -93,14 +102,14 @@ docs/
 **Progress:** 17/21 tasks done 🟢 | 3 in-progress 🔵 | 1 not started ⚪
 
 **App modules in `app/`:**
-`checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
+`checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `janitor.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
 
 **Task table:**
 
 | # | Task | Trạng thái | Ghi chú |
 |---|------|-----------|---------|
 | 0 | Khung dự án (`pyproject.toml` + ruff, `.python-version`, package `app`) | 🟢 | Commit `uv.lock`; có `numpy>=1.26` |
-| 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17) |
+| 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17); mọi model Whisper ghim commit HF (`revision`) |
 | 2 | Media/ffmpeg (`app/media.py`) | 🟢 | |
 | 3 | Transcribe faster-whisper (`app/transcribe.py`) | 🟢 | `hotwords` + fallback; cache 1 model/process |
 | 4 | Diarization sherpa-onnx (`app/diarize.py`) | 🟢 | |
@@ -108,21 +117,20 @@ docs/
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
-| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py` + `tests/test_server_live.py`, 109 test) | 🟢 | 108 passed, 1 deselected; CI GitHub Actions (ruff + pytest trên Ubuntu/macOS/Windows) |
+| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), Origin request ghi phải trùng đúng origin server + chặn Sec-Fetch-Site cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB (Content-Length check tại middleware trước multipart parse); export ghi file tạm riêng mỗi request, filename = stem gốc |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
-| 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
+| 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER. Checklist verify Windows: `docs/13-windows-verification-checklist.md` |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 
 **Open risks / blockers:**
-- [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
+- [ ] Verify installer trên Windows thật (chưa có máy trong phiên này) — checklist: `docs/13-windows-verification-checklist.md`
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
 <!-- status-block: end -->
 
 ---
@@ -141,6 +149,7 @@ docs/
 | `export.py` | `to_docx/xlsx/srt/txt()`, `speaker_name()` | Output formats |
 | `pipeline.py` | `run()` | Master pipeline, progress callback |
 | `checkpoint.py` | save/restore partial results | Long-file resilience |
+| `janitor.py` | `cleanup_jobs_dir()` | Auto-GC `jobs/` at startup (age >30d incl. stale `running`; size >20 GB never removes `running`, keeps 10 newest) |
 | `server.py` | FastAPI app | REST API + static file serving |
 
 ---
@@ -156,7 +165,7 @@ Contents: `models/` (HF cache), `jobs/` (output), `settings.json`, `glossary.txt
 
 ---
 
-## Dev commands (from `.worktrees/vitranscript-impl/`)
+## Dev commands (from repo root)
 
 ```bash
 uv sync                                          # install / update deps

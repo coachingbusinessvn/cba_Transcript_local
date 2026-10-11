@@ -38,7 +38,7 @@
 
 - `docs/09-spec-desktop-shell.md` — spec chuẩn, acceptance IDs DS-01..DS-16.
 - `docs/10-tasks-desktop-shell.md` — tracker implementation và bằng chứng từng nền tảng.
-- `docs/superpowers/plans/2026-07-19-desktop-shell.md` — plan này.
+- `docs/dev/plans/2026-07-19-desktop-shell.md` — plan này.
 
 ### Files to create
 

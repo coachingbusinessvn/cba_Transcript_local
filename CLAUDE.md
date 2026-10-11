@@ -14,9 +14,14 @@ docs/                   # Tài liệu kỹ thuật (KHÔNG chứa code)
   01-bai-toan.md        # Bài toán, quyết định kỹ thuật đã chốt, tiêu chí nghiệm thu
   02-plan.md            # Plan chi tiết từng task (code đầy đủ, interface, verify steps)
   03-tasks.md           # Bảng theo dõi trạng thái (xong/đang làm/chưa làm)
+  dev/                  # Plan/spec chi tiết từ quá trình phát triển (trước là docs/superpowers/)
 app/                    # Code ứng dụng (config, media, transcribe, diarize, pipeline, server…)
-tests/                  # Unit test (test_core.py, test_punctuate.py)
+tests/                  # Unit test (test_core.py, test_punctuate.py, test_janitor.py, test_server_live.py)
 scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_punctuation_model.py
+.github/                # CI (ruff + pytest Ubuntu/macOS/Windows), mẫu issue/PR
+LICENSE                 # MIT
+THIRD_PARTY_NOTICES.md  # License model/ffmpeg tải lúc chạy — cập nhật khi thêm model/thư viện
+SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md
 ```
 
 > Trước đây code nằm ở worktree `.worktrees/vitranscript-impl/`; từ bản merge 2026-07-24
@@ -43,14 +48,14 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 **Tiến độ:** 17/21 task xong 🟢 | 3 đang chạy 🔵 | 1 chưa làm ⚪
 
-**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
+**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `janitor.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
 
 **Bảng tasks (xem chi tiết: [docs/03-tasks.md](docs/03-tasks.md)):**
 
 | # | Task | Trạng thái | Ghi chú |
 |---|------|-----------|---------|
 | 0 | Khung dự án (`pyproject.toml` + ruff, `.python-version`, package `app`) | 🟢 | Commit `uv.lock`; có `numpy>=1.26` |
-| 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17) |
+| 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17); mọi model Whisper ghim commit HF (`revision`) |
 | 2 | Media/ffmpeg (`app/media.py`) | 🟢 | |
 | 3 | Transcribe faster-whisper (`app/transcribe.py`) | 🟢 | `hotwords` + fallback; cache 1 model/process |
 | 4 | Diarization sherpa-onnx (`app/diarize.py`) | 🟢 | |
@@ -58,21 +63,20 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 | 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
 | 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
 | 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
-| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
+| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py` + `tests/test_janitor.py` + `tests/test_server_live.py`, 109 test) | 🟢 | 108 passed, 1 deselected; CI GitHub Actions (ruff + pytest trên Ubuntu/macOS/Windows) |
+| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; security middleware: Host loopback-only (chống DNS rebinding), Origin request ghi phải trùng đúng origin server + chặn Sec-Fetch-Site cross-site (chống CSRF), `job_id` whitelist hex-12, upload ≤ 8 GB (Content-Length check tại middleware trước multipart parse); export ghi file tạm riêng mỗi request, filename = stem gốc |
 | 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
 | 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
 | 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
 | 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
 | 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
-| 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
+| 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER. Checklist verify Windows: `docs/13-windows-verification-checklist.md` |
 | 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
 
 **Rủi ro / việc treo đang mở:**
-- [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
+- [ ] Verify installer trên Windows thật (chưa có máy trong phiên này) — checklist: `docs/13-windows-verification-checklist.md`
 - [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
 - [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
 <!-- auto-update: end -->
 
 
@@ -80,10 +84,13 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 
 - `requires-python = ">=3.10,<3.13"` — KHÔNG kéo PyTorch/TensorFlow
 - Máy mục tiêu: macOS arm64, macOS x86_64, Windows x64 CPU-only
+- `onnxruntime<1.24` — 1.23.x là bản cuối còn wheel macOS x86_64 (1.24 không có wheel macOS, 1.25+ chỉ arm64); nâng version sẽ phá install trên Intel Mac
 - v1: **1 job tại một thời điểm** — server 409 nếu có job đang chạy
-- Server chỉ bind `127.0.0.1`
+- Server chỉ bind `127.0.0.1` + middleware `_security_guard`: Host phải là loopback (chống DNS rebinding), request ghi từ Origin/`Sec-Fetch-Site` cross-site bị 403 (chống CSRF); `job_id` phải là uuid-hex-12 (chống path traversal)
 - Text UI: tiếng Việt; `.bat` viết không dấu (tránh lỗi codepage Windows)
 - URL diarization: `"speaker-recongition-models"` — lỗi chính tả là CỐ Ý (upstream), không sửa
+- Mọi model tải lúc chạy PHẢI ghim: Whisper → `revision` (commit HF) trong `MODEL_REGISTRY`; dấu câu → revision + SHA-256; diarization → SHA-256. Thêm model → cập nhật `THIRD_PARTY_NOTICES.md`
+- Repo open source (MIT): không commit đường dẫn máy cá nhân, audio/transcript thật, hay token
 
 ## RULE: Luôn cập nhật CLAUDE.md và AGENTS.md
 
@@ -95,45 +102,8 @@ scripts/                # smoke_e2e.py, eval_wer.py, eval_punctuation.py, smoke_
 - Rủi ro/blocker mới xuất hiện hoặc được giải quyết
 
 **Cách cập nhật:**
-1. Sửa block `<!-- auto-update: start -->
-## Trạng thái hiện tại
-
-> _Phần này tự động cập nhật khi commit vào main._
-
-**Tiến độ:** 17/21 task xong 🟢 | 3 đang chạy 🔵 | 1 chưa làm ⚪
-
-**Module đã có trong `app/`:** `checkpoint.py`, `config.py`, `diarize.py`, `export.py`, `glossary.py`, `media.py`, `pipeline.py`, `punctuate.py`, `segment.py`, `server.py`, `transcribe.py`
-
-**Bảng tasks (xem chi tiết: [docs/03-tasks.md](docs/03-tasks.md)):**
-
-| # | Task | Trạng thái | Ghi chú |
-|---|------|-----------|---------|
-| 0 | Khung dự án (`pyproject.toml` + ruff, `.python-version`, package `app`) | 🟢 | Commit `uv.lock`; có `numpy>=1.26` |
-| 1 | Config & model registry (`app/config.py`) | 🟢 | Model repos đã verify tồn tại trên HF (2026-07-17) |
-| 2 | Media/ffmpeg (`app/media.py`) | 🟢 | |
-| 3 | Transcribe faster-whisper (`app/transcribe.py`) | 🟢 | `hotwords` + fallback; cache 1 model/process |
-| 4 | Diarization sherpa-onnx (`app/diarize.py`) | 🟢 | |
-| 5 | Glossary 2 tầng (`app/glossary.py`) | 🟢 | |
-| 6 | Tách câu + gán speaker (`app/segment.py`) | 🟢 | |
-| 7 | Export DOCX/XLSX/SRT/TXT (`app/export.py`) | 🟢 | DOCX table style try/except |
-| 7b | Pipeline tổng (`app/pipeline.py`) | 🟢 | Dùng `load_model` đã cache |
-| 8 | Unit tests core (`tests/test_core.py` + `tests/test_punctuate.py`, 67 test) | 🟢 | 66 passed, 1 deselected |
-| 9 | Web server FastAPI (`app/server.py`) | 🟢 | 409 nếu đã có job running; filename export = stem gốc |
-| 10 | UI web tiếng Việt (`app/static/index.html`) | 🟢 | |
-| 11 | Script cài đặt 1-click (4 file) | 🟢 | Windows cần máy thật để verify đầy đủ |
-| 12 | Smoke test E2E (`scripts/smoke_e2e.py`) + sửa lỗi | 🟢 | **macOS:** smoke pass với model `tiny`; Windows → UI + unit tests |
-| 12b | Golden file — đo WER (`scripts/eval_wer.py`) | 🟢 | Scaffolding xong (`eval/README.md` + script). WER: — (chưa có sample người dùng) |
-| 13 | README người dùng cuối | 🟢 | Đường dẫn data Mac/Windows/Linux; WER cột “chưa đo — cần eval/sample” |
-| 14 | Nghiệm thu 6 tiêu chí + tag release | 🔵 | Beta: tag `v0.1.0-beta` (2026-07-24). GA `v0.1.0` chờ verify máy sạch / Windows / file dài / WER |
-| 15 | Phục hồi dấu câu ViBERT-CAPU ONNX | 🔵 | Xem `docs/11-tasks-punctuation-restoration.md`; chưa nghiệm thu đủ PR-13/PR-14 |
-
-**Rủi ro / việc treo đang mở:**
-- [ ] Verify installer trên Windows thật (chưa có máy trong phiên này)
-- [ ] Chất lượng diarization với ghi âm mic chung — cần file thật của người dùng để đánh giá
-- [ ] Task 12b: người dùng cung cấp file audio thật 3–5 phút + transcript gõ tay để điền bảng WER
-- [ ] GC thư mục jobs (disk) — v1: xóa thủ công qua README data path (không auto-delete)
-<!-- auto-update: end -->` trong `CLAUDE.md`
-2. Sửa block `<!-- status-block: start --> … <!-- status-block: end -->` trong `AGENTS.md`
+1. Sửa khối nằm giữa hai comment HTML `auto-update` (start/end) trong `CLAUDE.md`
+2. Sửa khối nằm giữa hai comment HTML `status-block` (start/end) trong `AGENTS.md`
 3. Commit cả 2 file cùng với code thay đổi trong **cùng 1 commit**
 
 > `CLAUDE.md` dùng cho Claude Code. `AGENTS.md` dùng cho AI khác (Codex, GPT, Gemini…). Nội dung trạng thái phải đồng bộ.

@@ -1636,7 +1636,7 @@ Create `docs/11-tasks-punctuation-restoration.md` with:
 ```markdown
 # Punctuation Restoration — verification tracker
 
-**Spec:** `docs/superpowers/specs/2026-07-19-punctuation-restoration-design.md`
+**Spec:** `docs/dev/specs/2026-07-19-punctuation-restoration-design.md`
 
 | ID | Automated evidence | macOS arm64 | macOS x86_64 | Windows x64 |
 |---|---|---|---|---|
@@ -1711,7 +1711,7 @@ any platform/fixture not actually verified.
 ## Amendments sau review (2026-07-23)
 
 Plan này đã thực thi xong; review hồi cứu tìm ra 5 defect, được sửa theo
-`docs/superpowers/plans/2026-07-23-punctuation-review-fixes.md`. Khi đọc lại plan gốc,
+`docs/dev/plans/2026-07-23-punctuation-review-fixes.md`. Khi đọc lại plan gốc,
 lưu ý các điểm sau đã bị thay thế:
 
 - Task 3 Step 4: `_apply_case` không dùng `str.capitalize()` nữa — nó phá casing giữa từ

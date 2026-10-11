@@ -1,5 +1,16 @@
 # ViTranscript
 
+[![CI](https://github.com/coachingbusinessvn/cba_Transcript_local/actions/workflows/ci.yml/badge.svg)](https://github.com/coachingbusinessvn/cba_Transcript_local/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![Python 3.10–3.12](https://img.shields.io/badge/python-3.10%E2%80%933.12-blue)
+![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows-lightgrey)
+
+> **English:** ViTranscript is a local-first desktop tool that turns Vietnamese audio and
+> video into timestamped, speaker-labelled transcripts. It exports DOCX, XLSX, SRT and TXT.
+> It runs fully offline on CPU (faster-whisper + PhoWhisper, sherpa-onnx diarization, ONNX
+> punctuation restoration). Recordings never leave your machine. The UI and docs are in
+> Vietnamese; contributions in English are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 Ứng dụng **local-first** chuyển hội thoại tiếng Việt (audio/video) thành văn bản có timestamp, phân biệt người nói, và xuất DOCX / Excel / SRT / TXT.
 
 Mọi xử lý chạy **trên máy của bạn**. File ghi âm và transcript **không được tải lên server bên thứ ba**.
@@ -128,7 +139,7 @@ Glossary được lưu trên máy và dùng lại lần sau.
 - **Phân biệt người nói** phụ thuộc chất lượng ghi âm: mic chung, giọng chồng lấn, ồn nền sẽ giảm độ chính xác.
 - **Lần đầu** dùng mỗi model cần **mạng** để tải về (vài trăm MB đến ~3 GB). Lần sau **offline** được.
 - Model **lớn** tốn **RAM** và thời gian hơn; máy chỉ vài GB RAM nên dùng `phowhisper-small` hoặc `whisper-small`.
-- v1 **không** chạy song song nhiều file; xóa dữ liệu job cũ bằng cách dọn thư mục data (mục Troubleshooting).
+- v1 **không** chạy song song nhiều file; app tự dọn job cũ mỗi lần khởi động (xem mục Thư mục dữ liệu).
 
 ---
 
@@ -146,6 +157,8 @@ App lưu model đã tải, settings, glossary và job tạm tại:
 
 Xóa **cả thư mục** trên = reset app (sẽ tải lại model lần sau).
 
+**Tự động dọn job cũ:** mỗi lần khởi động, app tự xóa các job trong `jobs/` có kết quả cũ hơn **30 ngày**; nếu tổng `jobs/` vượt **20 GB** thì xóa tiếp job cũ nhất trước nhưng luôn giữ lại **10 job gần nhất**. Job đang chạy mới được giữ lại; job `running` cũ hơn 30 ngày (thường là do app bị tắt/crash giữa chừng) vẫn bị xóa theo tuổi, còn luật giới hạn 20 GB không bao giờ xóa job đang chạy. Không cần dọn tay — nhưng vẫn có thể xóa thủ công `jobs/` nếu muốn giải phóng chỗ ngay.
+
 ### Cổng (port) bị bận
 
 Server tự tìm cổng trống bắt đầu từ **8756** (8756–8805). Nếu địa chỉ tự mở không vào được: đọc dòng `ViTranscript đang chạy tại http://127.0.0.1:<port>` trong cửa sổ terminal/CMD và mở đúng địa chỉ đó. Muốn giải phóng cổng cũ: đóng cửa sổ terminal/app ViTranscript cũ rồi chạy lại `run.command` / `run.bat`.
@@ -158,17 +171,29 @@ Server tự tìm cổng trống bắt đầu từ **8756** (8756–8805). Nếu 
 
 App ưu tiên `ffmpeg` có sẵn trên PATH; nếu thiếu sẽ **tự dùng static-ffmpeg** (kèm theo dependency). Không cần cài ffmpeg thủ công trong hầu hết trường hợp.
 
+> Bản static-ffmpeg được tải từ GitHub và **không kiểm tra checksum**. Nếu cần mức tin cậy cao,
+> hãy cài ffmpeg từ nguồn chính thức (Homebrew, winget…) trước khi chạy app. Xem
+> [`SECURITY.md`](SECURITY.md).
+
 ### Windows: không tìm thấy `uv` sau khi cài
 
 1. **Đóng và mở lại** cửa sổ CMD/PowerShell (hoặc đăng xuất/đăng nhập).
 2. Hoặc thêm `%USERPROFILE%\.local\bin` vào **PATH** hệ thống, rồi mở terminal mới.
 3. Kiểm tra: `uv --version`.
 
+### Windows: `run.bat` nháy cửa sổ rồi tắt ngay
+
+Mở `cmd.exe`, `cd` tới thư mục app rồi chạy tay `uv run python -m app.server` để đọc lỗi
+(`run.bat` không có `pause` nên cửa sổ tự đóng khi lỗi).
+
+> **Checklist verify đầy đủ trên Windows thật** (cài đặt → chạy → upload/export → edge cases):
+> [`docs/13-windows-verification-checklist.md`](docs/13-windows-verification-checklist.md)
+
 ### Job bị kẹt / lỗi giữa chừng
 
 - Xem thông báo trên UI.
 - Thử model nhỏ hơn hoặc file ngắn hơn.
-- Xóa thư mục `jobs` trong thư mục data (bảng trên) nếu disk đầy.
+- App đã tự dọn `jobs/` mỗi lần khởi động (>30 ngày hoặc >20 GB, giữ 10 job mới nhất); nếu vẫn cần thêm chỗ, xóa tay thư mục `jobs` trong thư mục data (bảng trên).
 
 ---
 
@@ -187,3 +212,17 @@ uv run python scripts/eval_punctuation.py         # boundary F1, cần fixture r
 ```
 
 Tài liệu kỹ thuật: [`docs/01-bai-toan.md`](docs/01-bai-toan.md), [`docs/02-plan.md`](docs/02-plan.md), [`docs/03-tasks.md`](docs/03-tasks.md).
+
+---
+
+## Đóng góp & bảo mật
+
+- Hướng dẫn đóng góp: [`CONTRIBUTING.md`](CONTRIBUTING.md) · Quy tắc ứng xử: [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md)
+- Báo lỗ hổng bảo mật (kênh riêng tư): [`SECURITY.md`](SECURITY.md)
+
+## License
+
+Mã nguồn ViTranscript phát hành theo [MIT License](LICENSE).
+App không đóng gói model hay ffmpeg, mà tải chúng về lúc chạy. Mỗi thành phần đó giữ license
+riêng (PhoWhisper: BSD-3-Clause, ViBERT-CAPU: CC-BY-SA-4.0, FFmpeg: LGPL/GPL…). Xem
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).

@@ -1,7 +1,7 @@
 # Tasks — Desktop Shell v1.5
 
 > Spec: [09-spec-desktop-shell.md](09-spec-desktop-shell.md) · Plan:
-> [superpowers/plans/2026-07-19-desktop-shell.md](superpowers/plans/2026-07-19-desktop-shell.md).
+> [dev/plans/2026-07-19-desktop-shell.md](dev/plans/2026-07-19-desktop-shell.md).
 >
 > File này chỉ theo dõi thực thi. Việc hoàn thiện spec/plan không đồng nghĩa tính năng
 > đã được triển khai hoặc nghiệm thu.

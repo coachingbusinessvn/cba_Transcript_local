@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Báo lỗ hổng bảo mật / Report a vulnerability
+    url: https://github.com/coachingbusinessvn/cba_Transcript_local/security/advisories/new
+    about: Vui lòng báo riêng, không mở issue công khai.

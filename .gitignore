@@ -19,3 +19,7 @@ eval/punctuation_reference.txt
 
 # State tam cua superpowers skill (khong phai san pham)
 .superpowers/
+
+# Cache cong cu dev
+.pytest_cache/
+.ruff_cache/
