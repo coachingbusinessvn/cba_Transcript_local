@@ -39,6 +39,22 @@
       font-weight: 700;
       letter-spacing: -0.02em;
     }
+    header .brand {
+      margin: 0 0 6px;
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    header .brand a, footer.site a { color: inherit; text-decoration: none; }
+    header .brand a:hover, footer.site a:hover { text-decoration: underline; }
+    footer.site {
+      margin-top: 28px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.85rem;
+    }
     header p {
       margin: 0 0 22px;
       color: var(--muted);
@@ -261,6 +277,7 @@
 <body>
   <div class="wrap">
     <header>
+      <div class="brand"><a href="https://coachingbusiness.vn" target="_blank" rel="noopener noreferrer">Coaching Business</a></div>
       <h1>ViTranscript</h1>
       <p>Chuyển hội thoại tiếng Việt thành văn bản — chạy hoàn toàn trên máy bạn.</p>
     </header>
@@ -363,6 +380,12 @@
         </div>
       </div>
     </section>
+
+    <footer class="site">
+      ViTranscript · phát triển bởi
+      <a href="https://coachingbusiness.vn" target="_blank" rel="noopener noreferrer"><strong>Coaching Business</strong></a>
+      · mã nguồn mở MIT
+    </footer>
   </div>
 
   <script>

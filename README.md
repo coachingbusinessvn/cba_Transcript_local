@@ -1,5 +1,7 @@
 # ViTranscript
 
+**Phát triển bởi [Coaching Business](https://coachingbusiness.vn)** · mã nguồn mở, miễn phí, giấy phép MIT.
+
 [![CI](https://github.com/coachingbusinessvn/cba_Transcript_local/actions/workflows/ci.yml/badge.svg)](https://github.com/coachingbusinessvn/cba_Transcript_local/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Python 3.10–3.12](https://img.shields.io/badge/python-3.10%E2%80%933.12-blue)
@@ -226,3 +228,7 @@ Mã nguồn ViTranscript phát hành theo [MIT License](LICENSE).
 App không đóng gói model hay ffmpeg, mà tải chúng về lúc chạy. Mỗi thành phần đó giữ license
 riêng (PhoWhisper: BSD-3-Clause, ViBERT-CAPU: CC-BY-SA-4.0, FFmpeg: LGPL/GPL…). Xem
 [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
+---
+
+<p align="center">ViTranscript được phát triển và duy trì bởi <a href="https://coachingbusiness.vn"><strong>Coaching Business</strong></a>.</p>
